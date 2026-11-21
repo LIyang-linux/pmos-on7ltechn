@@ -147,7 +147,8 @@ jobs:
           if [ -n "$CFG" ]; then
             for OPT in CONFIG_DRM_PANEL_SAMSUNG_S6D7AA0 \
                        CONFIG_BACKLIGHT_CLASS_DEVICE \
-                       CONFIG_TOUCHSCREEN_ZINITIX; do
+                       CONFIG_TOUCHSCREEN_ZINITIX \
+                       CONFIG_POWER_SUPPLY_SM5703; do
               sed -i -e "s/^${OPT}=.*/${OPT}=y/" \
                      -e "s/^# ${OPT} is not set/${OPT}=y/" "$CFG"
               grep -q "^${OPT}=" "$CFG" || echo "${OPT}=y" >> "$CFG"

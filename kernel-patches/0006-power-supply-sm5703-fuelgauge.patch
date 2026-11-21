@@ -1,0 +1,265 @@
+From: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
+Subject: [PATCH] power: supply: add SiliconMitus SM5703 fuel gauge driver
+
+Minimal mainline power_supply driver for the SiliconMitus SM5703 fuel
+gauge used in the Samsung Galaxy On7 (SM-G6000 / on7ltechn). The
+downstream Samsung driver depends on a private battery framework; this
+implementation exposes the gauge through the standard power_supply
+class so that desktop battery indicators work.
+
+Register map and scaling are taken from the downstream
+drivers/battery/sm5703_fuelgauge.c (GPL-2.0).
+
+Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
+---
+ drivers/power/supply/Kconfig      |  8 ++++++++
+ drivers/power/supply/Makefile     |  1 +
+ drivers/power/supply/sm5703-fuelgauge.c | 186 ++++++++++++++++++++++++++
+ 3 files changed, 195 insertions(+)
+ create mode 100644 drivers/power/supply/sm5703-fuelgauge.c
+---
+--- a/drivers/power/supply/Kconfig
++++ b/drivers/power/supply/Kconfig
+@@ -1030,4 +1030,12 @@
+ 	  the state of charge, temperature, cycle count, actual and design
+ 	  capacity, etc.
+ 
++config POWER_SUPPLY_SM5703
++	tristate "SiliconMitus SM5703 fuel gauge"
++	depends on I2C
++	help
++	  Driver for the SiliconMitus SM5703 fuel gauge, found in the
++	  Samsung Galaxy On7 (on7ltechn) and other Samsung devices.
++	  Reports capacity, voltage, current and temperature.
++
+ endif # POWER_SUPPLY
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ -120,3 +120,4 @@
+ obj-$(CONFIG_BATTERY_UG3105)	+= ug3105_battery.o
+ obj-$(CONFIG_CHARGER_QCOM_SMB2)	+= qcom_pmi8998_charger.o
+ obj-$(CONFIG_FUEL_GAUGE_MM8013)	+= mm8013.o
++obj-$(CONFIG_POWER_SUPPLY_SM5703)	+= sm5703-fuelgauge.o
+--- /dev/null
++++ b/drivers/power/supply/sm5703-fuelgauge.c
+@@ -0,0 +1,220 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * SiliconMitus SM5703 fuel gauge driver for mainline Linux
++ *
++ * Minimal power_supply implementation for the Samsung Galaxy On7
++ * (on7ltechn). Register map and scaling are taken from the Samsung
++ * downstream driver (drivers/battery/sm5703_fuelgauge.c, GPL-2.0).
++ *
++ * Only the basic properties are implemented: capacity, voltage,
++ * current, temperature and a charge status derived from the current
++ * sign. The downstream driver's full fuel-gauge tuning (parameter
++ * tables, calibration, alerts) is not reproduced here.
++ */
++
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/power_supply.h>
++
++#define SM5703_REG_DEVICE_ID	0x00
++#define SM5703_REG_CNTL		0x01
++#define SM5703_REG_INTFG	0x02
++#define SM5703_REG_STATUS	0x04
++#define SM5703_REG_SOC		0x05
++#define SM5703_REG_OCV		0x06
++#define SM5703_REG_VOLTAGE	0x07
++#define SM5703_REG_CURRENT	0x08
++#define SM5703_REG_TEMPERATURE	0x09
++
++struct sm5703_fg {
++	struct i2c_client	*client;
++	struct power_supply	*psy;
++};
++
++static int sm5703_read_word(struct i2c_client *client, u8 reg)
++{
++	int ret = i2c_smbus_read_word_data(client, reg);
++
++	if (ret < 0)
++		return ret;
++
++	return ret & 0xffff;
++}
++
++static int sm5703_get_voltage(struct i2c_client *client)
++{
++	int ret = sm5703_read_word(client, SM5703_REG_VOLTAGE);
++	int uv;
++
++	if (ret < 0)
++		return ret;
++
++	uv = ((ret & 0x0700) >> 8) * 1000;
++	uv += ((ret & 0x00ff) * 1000) / 256;
++
++	return uv * 1000;			/* mV -> uV */
++}
++
++static int sm5703_get_current(struct i2c_client *client)
++{
++	int ret = sm5703_read_word(client, SM5703_REG_CURRENT);
++	int ua;
++
++	if (ret < 0)
++		return ret;
++
++	ua = ((ret & 0x0700) >> 8) * 1000;
++	ua += ((ret & 0x00ff) * 1000) / 256;
++	if (ret & 0x8000)
++		ua = -ua;
++
++	return ua * 1000;			/* mA -> uA */
++}
++
++static int sm5703_get_temp(struct i2c_client *client)
++{
++	int ret = sm5703_read_word(client, SM5703_REG_TEMPERATURE);
++	int t;
++
++	if (ret < 0)
++		return ret;
++
++	t = ((ret & 0x7f00) >> 8) * 10;
++	t += ((ret & 0x00ff) * 10) / 256;
++	if (ret & 0x8000)
++		t = -t;
++
++	return t;				/* 0.1 degC */
++}
++
++static int sm5703_get_capacity(struct i2c_client *client)
++{
++	int ret = sm5703_read_word(client, SM5703_REG_SOC);
++
++	if (ret < 0)
++		return ret;
++
++	return (((ret & 0xff00) >> 8) * 10 + ((ret & 0x00ff) * 10) / 256) / 10;
++}
++
++static int sm5703_get_status(struct i2c_client *client)
++{
++	int ua = sm5703_get_current(client);
++
++	if (ua < 0)
++		return POWER_SUPPLY_STATUS_DISCHARGING;
++
++	/* Positive current means charging on this fuel gauge. */
++	if (ua > 10000)
++		return POWER_SUPPLY_STATUS_CHARGING;
++	if (ua < -10000)
++		return POWER_SUPPLY_STATUS_DISCHARGING;
++
++	return POWER_SUPPLY_STATUS_UNKNOWN;
++}
++
++static int sm5703_get_property(struct power_supply *psy,
++			       enum power_supply_property psp,
++			       union power_supply_propval *val)
++{
++	struct sm5703_fg *fg = power_supply_get_drvdata(psy);
++	struct i2c_client *client = fg->client;
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_CAPACITY:
++		val->intval = sm5703_get_capacity(client);
++		break;
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		val->intval = sm5703_get_voltage(client);
++		break;
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++		val->intval = sm5703_get_current(client);
++		break;
++	case POWER_SUPPLY_PROP_TEMP:
++		val->intval = sm5703_get_temp(client);
++		break;
++	case POWER_SUPPLY_PROP_STATUS:
++		val->intval = sm5703_get_status(client);
++		break;
++	case POWER_SUPPLY_PROP_PRESENT:
++		val->intval = 1;
++		break;
++	case POWER_SUPPLY_PROP_TECHNOLOGY:
++		val->intval = POWER_SUPPLY_TECHNOLOGY_LIPO;
++		break;
++	case POWER_SUPPLY_PROP_MODEL_NAME:
++		val->strval = "SM5703";
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static enum power_supply_property sm5703_props[] = {
++	POWER_SUPPLY_PROP_CAPACITY,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_CURRENT_NOW,
++	POWER_SUPPLY_PROP_TEMP,
++	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_PRESENT,
++	POWER_SUPPLY_PROP_TECHNOLOGY,
++	POWER_SUPPLY_PROP_MODEL_NAME,
++};
++
++static const struct power_supply_desc sm5703_desc = {
++	.name		= "sm5703-fuelgauge",
++	.type		= POWER_SUPPLY_TYPE_BATTERY,
++	.properties	= sm5703_props,
++	.num_properties	= ARRAY_SIZE(sm5703_props),
++	.get_property	= sm5703_get_property,
++};
++
++static int sm5703_probe(struct i2c_client *client)
++{
++	struct power_supply_config cfg = {};
++	struct sm5703_fg *fg;
++	int id;
++
++	id = sm5703_read_word(client, SM5703_REG_DEVICE_ID);
++	if (id < 0) {
++		dev_err(&client->dev, "cannot read device id: %d\n", id);
++		return id;
++	}
++
++	fg = devm_kzalloc(&client->dev, sizeof(*fg), GFP_KERNEL);
++	if (!fg)
++		return -ENOMEM;
++
++	fg->client = client;
++	i2c_set_clientdata(client, fg);
++
++	dev_info(&client->dev, "SM5703 fuel gauge, device id 0x%04x\n", id);
++
++	cfg.drv_data = fg;
++	fg->psy = devm_power_supply_register(&client->dev, &sm5703_desc, &cfg);
++	if (IS_ERR(fg->psy))
++		return PTR_ERR(fg->psy);
++
++	return 0;
++}
++
++static const struct of_device_id sm5703_fg_of_match[] = {
++	{ .compatible = "sm5703-fuelgauge" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sm5703_fg_of_match);
++
++static struct i2c_driver sm5703_fg_driver = {
++	.driver = {
++		.name		= "sm5703-fuelgauge",
++		.of_match_table	= sm5703_fg_of_match,
++	},
++	.probe	= sm5703_probe,
++};
++module_i2c_driver(sm5703_fg_driver);
++
++MODULE_DESCRIPTION("SiliconMitus SM5703 fuel gauge");
++MODULE_AUTHOR("LIyang-linux");
++MODULE_LICENSE("GPL");

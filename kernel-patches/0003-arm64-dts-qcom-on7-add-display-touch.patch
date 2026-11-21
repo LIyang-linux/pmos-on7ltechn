@@ -1,6 +1,6 @@
 --- a/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
 +++ b/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
-@@ -155,3 +155,148 @@
+@@ -155,3 +155,164 @@
  		bias-disable;
  	};
  };
@@ -147,5 +147,21 @@
 +
 +		touchscreen-size-x = <2880>;
 +		touchscreen-size-y = <5120>;
++	};
++};
++
++/* Battery fuel gauge: SM5703 on a bit-banged I2C bus */
++/* SDA = gpio14, SCL = gpio15 (same as downstream o7lte-chn rev03) */
++i2c_fg: i2c-gpio-fg {
++	compatible = "i2c-gpio";
++	sda-gpios = <&tlmm 14 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
++	scl-gpios = <&tlmm 15 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
++	i2c-gpio,delay-us = <2>;
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	fuelgauge@71 {
++		compatible = "sm5703-fuelgauge";
++		reg = <0x71>;
 +	};
 +};
