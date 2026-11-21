@@ -168,6 +168,25 @@ jobs:
           fi
           sed -n '/^source="/,/^"/p' "$KAPORT/APKBUILD"
 
+      - name: 5c. 本地重编 vte3（规避 Alpine edge 的 simdutf 依赖断裂）
+        run: |
+          set -e
+          # Alpine edge 把 simdutf 升到 9.4.0（SONAME 37 -> 38），但 community 的
+          # vte3 还停在 r4、依赖 libsimdutf.so.37，apk 无法解析（xfce4-terminal 依赖它，
+          # 会拖垮整个 install）。上游 aports 已 bump 到 r5，但二进制仓库还没出包。
+          # 这里取 aports 源码放进 pmaports，让 pmbootstrap 编一个版本号更高的本地包顶替。
+          VTE3="$APORTS_DIR/community/vte3"
+          mkdir -p "$VTE3"
+          for f in APKBUILD fix-W_EXITCODE.patch; do
+            curl -fsSL --retry 5 --retry-delay 10 \
+              "https://gitlab.alpinelinux.org/alpine/aports/-/raw/master/community/vte3/$f" \
+              -o "$VTE3/$f"
+          done
+          # 上游修复为 r5，本地再 +1，保证版本号永远高于二进制仓库里的同名包
+          sed -i -E 's/^pkgrel=.*/pkgrel=6/' "$VTE3/APKBUILD"
+          grep -nE '^pkgname=|^pkgver=|^pkgrel=' "$VTE3/APKBUILD"
+          grep -n 'simdutf' "$VTE3/APKBUILD" || true
+
       - name: 6. 写入配置（跳过交互式 init）
         run: |
           set -e
@@ -225,6 +244,13 @@ jobs:
             exit 1
           fi
 
+          # vte3：上游二进制仓库的 r4 依赖已失效的 libsimdutf.so.37。
+          # 用 5c 放进 pmaports 的本地 r6 重编（arch=all，几分钟）。
+          if ! ./pmbootstrap.py --aports="$APORTS_DIR" build vte3; then
+            echo "::warning::vte3 本地编译失败，install 可能因 simdutf 依赖断裂而失败"
+            tail -40 "$WORK_DIR/log.txt" || true
+          fi
+
           ./pmbootstrap.py --aports="$APORTS_DIR" build device-samsung-on7ltechn
 
           # firmware-samsung-on7 位于 device/archived/，不会进入二进制仓库，必须本地编译，
@@ -254,15 +280,22 @@ jobs:
           CH=$(./pmbootstrap.py -q config channel 2>/dev/null || echo edge)
           SM=$(./pmbootstrap.py -q config service_manager 2>/dev/null || echo openrc)
           echo "channel=$CH service_manager=$SM"
+          # 收集本地编译产物：设备包（含 subpackage）+ vte3。
+          # vte3 是 arch=all，pmbootstrap 可能把它放在 packages/<channel>/all，
+          # 而 install 只读 aarch64 目录，所以必须一起找出来同步。
+          LOCAL_APKS=$(find "$WORK_DIR/packages" -name '*.apk' 2>/dev/null \
+            | grep -E 'device-samsung-on7ltechn|vte3-' | sort -u)
+          echo "== 待同步到 install 仓库的本地包 =="
+          echo "$LOCAL_APKS"
           for DST in "$WORK_DIR/packages/$SM-$CH/aarch64" \
                      "$WORK_DIR/packages/systemd-$CH/aarch64" \
                      "$WORK_DIR/packages/$CH/aarch64"; do
             [ "$DST" = "$SRC" ] && continue
             sudo mkdir -p "$DST"
-            sudo cp -f "$SRC"/*.apk "$DST"/
+            for A in $LOCAL_APKS; do sudo cp -f "$A" "$DST"/; done
             sudo "$WORK_DIR/apk.static" index --allow-untrusted \
               --output "$DST/APKINDEX.tar.gz" "$DST"/*.apk >/dev/null 2>&1 || true
-            ls -l "$DST" | head -4
+            ls -l "$DST" | head -6
           done
           # --password 必填：install 会用 getpass 交互取密码，CI 无 TTY 则直接失败。
           # 密码仅用于本次镜像（user/147147），首次启动后请自行修改。
