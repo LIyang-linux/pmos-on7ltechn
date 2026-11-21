@@ -20,7 +20,7 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 ---
 --- a/drivers/input/touchscreen/zinitix.c
 +++ b/drivers/input/touchscreen/zinitix.c
-@@ -80,6 +80,15 @@
+@@ -91,6 +91,15 @@
  #define ZINITIX_BTN_WIDTH			0x016d
  
  #define ZINITIX_CHECKSUM_RESULT			0x012c
@@ -36,7 +36,7 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
  
  #define ZINITIX_INIT_FLASH			0x01d0
  #define ZINITIX_WRITE_FLASH			0x01d1
-@@ -142,6 +151,7 @@
+@@ -153,6 +162,7 @@
  };
  
  struct bt541_ts_data {
@@ -44,9 +44,9 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
  	struct i2c_client *client;
  	struct input_dev *input_dev;
  	struct touchscreen_properties prop;
-@@ -200,12 +210,44 @@
+@@ -229,10 +239,42 @@
  	int error;
- 	u16 int_flags = 0;
+ 	u16 int_flags;
  
 +	if (bt541->is_zt7548) {
 +		/*
@@ -75,8 +75,8 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
  	if (error) {
  		dev_err(&client->dev, "Failed to write reset command\n");
  		return error;
- 	}
- 
++	}
++
 +	/* The stock driver scales reported coordinates by 4. */
 +	if (bt541->is_zt7548) {
 +		error = zinitix_write_u16(client,
@@ -84,12 +84,10 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 +					  ZT7548_RESOLUTION_EXPANDER_VALUE);
 +		if (error)
 +			return error;
-+	}
-+
- 	error = zinitix_write_u16(client, ZINITIX_INT_ENABLE_FLAG, 0x0);
- 	if (error) {
- 		dev_err(&client->dev,
-@@ -214,15 +256,21 @@
+ 	}
+ 
+ 	/*
+@@ -284,15 +326,21 @@
  	}
  
  	/* initialize */
@@ -120,7 +118,7 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
  
  	error = zinitix_write_u16(client, ZINITIX_SUPPORTED_FINGER_NUM,
  				  MAX_SUPPORTED_FINGER_NUM);
-@@ -243,6 +291,18 @@
+@@ -313,6 +361,18 @@
  				  bt541->zinitix_mode);
  	if (error)
  		return error;
@@ -138,8 +136,8 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 +	}
  
  	int_flags = BIT_PT_CNT_CHANGE | BIT_DOWN | BIT_MOVE | BIT_UP;
- 
-@@ -257,6 +317,18 @@
+ 	if (bt541->num_keycodes)
+@@ -326,6 +386,18 @@
  	for (i = 0; i < 10; i++) {
  		zinitix_write_cmd(client, ZINITIX_CLEAR_INT_STATUS_CMD);
  		udelay(10);
@@ -158,7 +156,7 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
  	}
  
  	return 0;
-@@ -326,7 +398,8 @@
+@@ -395,7 +467,8 @@
  			"Failed to send power sequence (program start)\n");
  		return error;
  	}
@@ -168,7 +166,7 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
  
  	return 0;
  }
-@@ -558,6 +631,8 @@
+@@ -627,6 +700,8 @@
  		return -ENOMEM;
  
  	bt541->client = client;
@@ -177,7 +175,7 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
  	i2c_set_clientdata(client, bt541);
  
  	error = zinitix_init_regulators(bt541);
-@@ -599,11 +674,15 @@
+@@ -680,11 +755,15 @@
  	error = device_property_read_u32(&client->dev, "zinitix,mode",
  					 &bt541->zinitix_mode);
  	if (error < 0) {
