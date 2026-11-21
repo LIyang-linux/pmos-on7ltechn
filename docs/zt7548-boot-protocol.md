@@ -92,3 +92,17 @@ esd_timer_start();
 2. `grep zinitix /proc/interrupts` 边摸边看计数
 3. `evtest` 摸四角：坐标范围应到 2879/5119（0x186=4 生效，DT 的 size 2880/5120 正确）
 4. 若 checksum mismatch → 芯片没完成 boot，需查供电时序或移植固件下载路径
+
+## 结果：已验证可用（2026-11-21）
+
+patch 0005 随镜像 `69466b5` 刷入真机（SM-G6000），**触摸正常工作**，
+USB 网络（RNDIS）同时打通，SSH 登录、进桌面均正常。
+
+关键修复点复核：
+- boot 后 150ms 等待（原 40ms 不够，芯片未完成 boot 会导致后续全部失败）
+- 0x186 分辨率扩展器 = 4（坐标 ×4，与 DT 的 2880×5120 对应）
+- touch mode = 1（原强校验必须为 2）
+- boot 校验 0x12C == 0x55AA、软校准 cmd 0x0006、ESD 周期 0xF1=100
+
+未移植项（不影响手指触摸）：两个电容键（RECENT/BACK，0xB0=2 + icon 事件）、
+TA 充电状态检测。

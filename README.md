@@ -51,7 +51,7 @@ Samsung Galaxy On7 国行版（SM-G6000 / `on7ltechn`，MSM8916，2GB RAM）的 
 | 引导（lk2nd） | ✅ 已通 | 通用 `lk2nd-msm8916.img`，自动识别 SM-G6000 |
 | 系统启动 | ✅ 已通 | ext2 `/boot` + ext4 根分区，lk2nd 读取 `extlinux.conf` |
 | 显示 | ✅ 已通 | 面板补丁（0002/0003）生效，画面与背光正常 |
-| 触摸 | ❌ 未通 | ZT7548 补丁已就位，实测触摸仍不工作 |
+| 触摸 | ✅ 已通 | ZT7548 init 序列补丁（0005）生效，实测触摸正常 |
 | WiFi | 待验证 | 依赖 `firmware-samsung-on7-wcnss-nv`（源在 pastebin，偶发拉不到） |
 | 电池 / 充电 | 待做 | SM5703 MUIC 可能已可用，电量计型号需确认 |
 | 音频 | 待做 | 需补 WCD 音频路由与 UCM |
@@ -166,4 +166,4 @@ dmesg | grep -iE "zinitix|i2c"
 两个仓库完全独立：
 
 - `lineage-on7ltechn`：Android 7.1.2，日常可用（单卡、通话、短信已通）
-- 本仓库：postmarketOS 主线内核，屏幕已点亮，目标“能用触摸、能用 WiFi”，**短期不具备通话能力**
+- 本仓库：postmarketOS 主线内核，屏幕与触摸均已可用，目标“能用 WiFi”，**短期不具备通话能力**
