@@ -1,0 +1,168 @@
+--- a/drivers/gpu/drm/panel/panel-samsung-s6d7aa0.c
++++ b/drivers/gpu/drm/panel/panel-samsung-s6d7aa0.c
+@@ -41,12 +41,17 @@
+ 	u32 bus_flags;
+ 	bool has_backlight;
+ 	bool use_passwd3;
++
++	/* Optional voltage for supplies[0] ("power"), 0 = leave as is */
++	unsigned int power_min_uv;
++	unsigned int power_max_uv;
+ };
+ 
+ enum s6d7aa0_panels {
+ 	S6D7AA0_PANEL_LSL080AL02,
+ 	S6D7AA0_PANEL_LSL080AL03,
+ 	S6D7AA0_PANEL_LTL101AT01,
++	S6D7AA0_PANEL_BV050HDM,
+ };
+ 
+ static inline struct s6d7aa0 *panel_to_s6d7aa0(struct drm_panel *panel)
+@@ -446,6 +451,120 @@
+ 	.use_passwd3 = true,
+ };
+ 
++/* Initialization code and structures for BV050HDM panel (Galaxy On7) */
++
++static int s6d7aa0_bv050hdm_init(struct s6d7aa0 *ctx)
++{
++	struct mipi_dsi_device *dsi = ctx->dsi;
++	struct device *dev = &dsi->dev;
++	int ret;
++
++	usleep_range(20000, 25000);
++
++	/* Level 2 key enable (same values as the Samsung downstream sequence) */
++	mipi_dsi_dcs_write_seq(dsi, MCS_PASSWD1, 0x5a, 0x5a);
++	mipi_dsi_dcs_write_seq(dsi, MCS_PASSWD2, 0x5a, 0x5a);
++	mipi_dsi_dcs_write_seq(dsi, MCS_PASSWD3, 0xa5, 0xa5);
++
++	mipi_dsi_dcs_write_seq(dsi, MCS_OTP_RELOAD, 0x00, 0x10);
++	mipi_dsi_dcs_write_seq(dsi, 0xb1, 0x12);
++	mipi_dsi_dcs_write_seq(dsi, 0xb2, 0x14, 0x22, 0x2f, 0x18);
++	mipi_dsi_dcs_write_seq(dsi, 0xb3, 0x11);
++	mipi_dsi_dcs_write_seq(dsi, 0xba, 0x03, 0x19, 0x19, 0x11, 0x03,
++				0x05, 0x18, 0x18, 0x77);
++	mipi_dsi_dcs_write_seq(dsi, 0xbc, 0x00, 0x4e, 0x0b);
++	mipi_dsi_dcs_write_seq(dsi, 0xc0, 0x80, 0x80, 0x30);
++	mipi_dsi_dcs_write_seq(dsi, 0xc1, 0x03);
++	usleep_range(1000, 1500);
++	mipi_dsi_dcs_write_seq(dsi, 0xc2, 0x00);
++	usleep_range(10000, 11000);
++	mipi_dsi_dcs_write_seq(dsi, MCS_BL_CTL, 0x40, 0x00, 0x28);
++	mipi_dsi_dcs_write_seq(dsi, 0xee, 0xa8, 0x00, 0x95, 0x00, 0xa8,
++				0x00, 0x95, 0x00);
++	mipi_dsi_dcs_write_seq(dsi, 0xf2, 0x02, 0x10, 0x10, 0xc4, 0x80);
++	mipi_dsi_dcs_write_seq(dsi, 0xf3, 0x01, 0x93, 0x20, 0x22, 0x80,
++				0x05, 0x25, 0x3c, 0x26, 0x00);
++	mipi_dsi_dcs_write_seq(dsi, 0xf7,
++				0x01, 0x1b, 0x08, 0x0c, 0x09, 0x0d, 0x01, 0x01,
++				0x01, 0x04, 0x06, 0x01, 0x01, 0x00, 0x00, 0x1a,
++				0x01, 0x1b, 0x0a, 0x0e, 0x0b, 0x0f, 0x01, 0x01,
++				0x01, 0x05, 0x07, 0x01, 0x01, 0x00, 0x00, 0x1a);
++	mipi_dsi_dcs_write_seq(dsi, 0xef, 0x34, 0x12, 0x98, 0xba, 0x10,
++				0x80, 0x24, 0x80, 0x80, 0x80, 0x00, 0x00,
++				0x00, 0x44, 0xa0, 0x82, 0x00);
++	mipi_dsi_dcs_write_seq(dsi, 0xf6, 0x60, 0x25, 0x05, 0x00, 0x00, 0x03);
++	mipi_dsi_dcs_write_seq(dsi, 0xcd,
++				0x2e, 0x2e, 0x2e, 0x2e, 0x2e, 0x2e, 0x2e, 0x2e,
++				0x2e, 0x2e, 0x2e, 0x2e, 0x2e);
++	mipi_dsi_dcs_write_seq(dsi, 0xce,
++				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++				0x00, 0x00, 0x00, 0x00, 0x00);
++	mipi_dsi_dcs_write_seq(dsi, 0x53, 0x2c);
++	mipi_dsi_dcs_write_seq(dsi, 0x55, 0x01);
++	mipi_dsi_dcs_write_seq(dsi, 0xfa,
++				0x01, 0x3f, 0x09, 0x0c, 0x00, 0x01, 0x06, 0x04,
++				0x04, 0x0c, 0x10, 0x15, 0x16, 0x18, 0x1c, 0x20,
++				0x2a);
++	mipi_dsi_dcs_write_seq(dsi, 0xfb,
++				0x01, 0x3f, 0x09, 0x0c, 0x00, 0x01, 0x06, 0x04,
++				0x04, 0x0c, 0x10, 0x15, 0x16, 0x18, 0x1c, 0x20,
++				0x2a);
++	mipi_dsi_dcs_write_seq(dsi, MCS_PASSWD1, 0xa5, 0xa5);
++	mipi_dsi_dcs_write_seq(dsi, MCS_PASSWD2, 0xa5, 0xa5);
++	mipi_dsi_dcs_write_seq(dsi, MCS_PASSWD3, 0x5a, 0x5a);
++
++	ret = mipi_dsi_dcs_exit_sleep_mode(dsi);
++	if (ret < 0) {
++		dev_err(dev, "Failed to exit sleep mode: %d\n", ret);
++		return ret;
++	}
++
++	msleep(120);
++
++	/* Backlight is DCS controlled; start at full brightness */
++	mipi_dsi_dcs_write_seq(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0xff);
++
++	return 0;
++}
++
++static int s6d7aa0_bv050hdm_off(struct s6d7aa0 *ctx)
++{
++	struct mipi_dsi_device *dsi = ctx->dsi;
++
++	mipi_dsi_dcs_write_seq(dsi, MIPI_DCS_SET_DISPLAY_OFF, 0x00);
++
++	return 0;
++}
++
++static const struct drm_display_mode s6d7aa0_bv050hdm_mode = {
++	.clock = (720 + 104 + 42 + 154) * (1280 + 16 + 4 + 12) * 60 / 1000,
++	.hdisplay = 720,
++	.hsync_start = 720 + 104,
++	.hsync_end = 720 + 104 + 42,
++	.htotal = 720 + 104 + 42 + 154,
++	.vdisplay = 1280,
++	.vsync_start = 1280 + 16,
++	.vsync_end = 1280 + 16 + 4,
++	.vtotal = 1280 + 16 + 4 + 12,
++	.width_mm = 62,
++	.height_mm = 106,
++};
++
++static const struct s6d7aa0_panel_desc s6d7aa0_bv050hdm_desc = {
++	.panel_type = S6D7AA0_PANEL_BV050HDM,
++	.init_func = s6d7aa0_bv050hdm_init,
++	.off_func = s6d7aa0_bv050hdm_off,
++	.drm_mode = &s6d7aa0_bv050hdm_mode,
++	.mode_flags = 0,
++	.bus_flags = 0,
++
++	.has_backlight = true,
++	.use_passwd3 = true,
++
++	.power_min_uv = 2100000,
++	.power_max_uv = 2100000,
++};
++
+ static int s6d7aa0_get_modes(struct drm_panel *panel,
+ 					struct drm_connector *connector)
+ {
+@@ -498,6 +617,15 @@
+ 					      ctx->supplies);
+ 	if (ret < 0)
+ 		return dev_err_probe(dev, ret, "Failed to get regulators\n");
++
++	if (ctx->desc->power_max_uv) {
++		ret = regulator_set_voltage(ctx->supplies[0].consumer,
++					    ctx->desc->power_min_uv,
++					    ctx->desc->power_max_uv);
++		if (ret < 0)
++			return dev_err_probe(dev, ret,
++					     "Failed to set panel power voltage\n");
++	}
+ 
+ 	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
+ 	if (IS_ERR(ctx->reset_gpio))
+@@ -565,6 +693,10 @@
+ 		.compatible = "samsung,ltl101at01",
+ 		.data = &s6d7aa0_ltl101at01_desc
+ 	},
++	{
++		.compatible = "samsung,s6d7aa0x62-bv050hdm",
++		.data = &s6d7aa0_bv050hdm_desc
++	},
+ 	{ /* sentinel */ }
+ };
+ MODULE_DEVICE_TABLE(of, s6d7aa0_of_match);

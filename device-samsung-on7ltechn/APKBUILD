@@ -1,0 +1,40 @@
+# Reference: <https://postmarketos.org/devicepkg>
+pkgname=device-samsung-on7ltechn
+pkgdesc="Samsung Galaxy On7 (2015) (China, SM-G6000)"
+pkgver=0
+pkgrel=0
+url="https://postmarketos.org"
+license="MIT"
+arch="aarch64"
+options="!check !archcheck"
+depends="
+	postmarketos-base
+	mkbootimg
+	linux-postmarketos-qcom-msm8916
+	soc-qcom-msm8916
+	soc-qcom-msm8916-rproc
+"
+makedepends="devicepkg-dev"
+source="deviceinfo modules-initfs"
+subpackages="
+	$pkgname-nonfree-firmware:nonfree_firmware
+"
+
+build() {
+	devicepkg_build $startdir $pkgname
+}
+
+package() {
+	devicepkg_package $startdir $pkgname
+}
+
+nonfree_firmware() {
+	pkgdesc="GPU/WiFi/BT/Modem/Video firmware"
+	depends="firmware-qcom-adreno-a300 msm-firmware-loader firmware-samsung-on7-wcnss-nv"
+	mkdir "$subpkgdir"
+}
+
+sha512sums="
+7fff327735dab3f34e8acf6da19c16f18aaf980139c3fc6f524880b6405c7dc6374782f80616d9706d77fe82c48010fff5231361455aeed937e24715cd3a76e9  deviceinfo
+2ec94ab06240419953494aede92263232e07745b8406923d39849c1a4b32bd135f4411243755e5f892d201e39dca10e8aa7b175b6c63361be094f6ba086a518f  modules-initfs
+"

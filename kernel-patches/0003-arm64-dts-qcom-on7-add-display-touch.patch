@@ -1,0 +1,125 @@
+--- a/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
++++ b/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
+@@ -155,3 +155,126 @@
+ 		bias-disable;
+ 	};
+ };
++
++/*
++ * Display: S6D7AA0X62 BV050HDM, 720x1280.
++ * Timings and init sequence are taken from the Samsung downstream DTS
++ * (o7lte-chn-rev03), where the DSI controller declares
++ *   qcom,platform-reset-gpio  = <&tlmm 25 0>   (reset, active high)
++ *   qcom,platform-enable-gpio = <&tlmm 16 0>   (panel enable, active high)
++ *   vddb = PM8916 S4 @2.1V, vddc = PM8916 L5 @1.8V
++ */
++&pm8916_s4 {
++	/* Downstream raises S4 to 2.1V for the panel (vddb) */
++	regulator-min-microvolt = <2100000>;
++	regulator-max-microvolt = <2100000>;
++};
++
++&mdss {
++	status = "okay";
++};
++
++&mdss_dsi0 {
++	pinctrl-names = "default", "sleep";
++	pinctrl-0 = <&mdss_default>;
++	pinctrl-1 = <&mdss_sleep>;
++
++	panel@0 {
++		compatible = "samsung,s6d7aa0x62-bv050hdm";
++		reg = <0>;
++
++		/* driver gets reset as GPIOD_OUT_HIGH, then pulses it */
++		reset-gpios = <&tlmm 25 GPIO_ACTIVE_HIGH>;
++
++		port {
++			panel_in: endpoint {
++				remote-endpoint = <&mdss_dsi0_out>;
++			};
++		};
++	};
++};
++
++&mdss_dsi0_out {
++	data-lanes = <0 1 2 3>;
++	remote-endpoint = <&panel_in>;
++};
++
++&tlmm {
++	mdss_default: mdss-default-state {
++		pins = "gpio25";
++		function = "gpio";
++
++		drive-strength = <8>;
++		bias-disable;
++	};
++
++	mdss_sleep: mdss-sleep-state {
++		pins = "gpio25";
++		function = "gpio";
++
++		drive-strength = <2>;
++		bias-pull-down;
++	};
++
++	tsp_irq_default: tsp-irq-default-state {
++		pins = "gpio13";
++		function = "gpio";
++
++		drive-strength = <2>;
++		bias-disable;
++	};
++
++	tsp_en_default: tsp-en-default-state {
++		pins = "gpio8";
++		function = "gpio";
++
++		drive-strength = <2>;
++		bias-disable;
++	};
++};
++
++/ {
++	/*
++	 * Touch: Zinitix ZT7548 on blsp_i2c5 (SDA gpio18 / SCL gpio19),
++	 * IRQ on gpio13, 3.0V analog rail switched by gpio8,
++	 * 1.8V I/O rail from PM8916 L6.
++	 */
++	tsp_avdd: regulator-tsp-avdd {
++		compatible = "regulator-fixed";
++		regulator-name = "tsp_avdd";
++		regulator-min-microvolt = <3000000>;
++		regulator-max-microvolt = <3000000>;
++
++		gpio = <&tlmm 8 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-boot-on;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&tsp_en_default>;
++	};
++};
++
++&blsp_i2c5 {
++	status = "okay";
++
++	touchscreen@20 {
++		compatible = "zinitix,zt7548";
++		reg = <0x20>;
++
++		interrupt-parent = <&tlmm>;
++		interrupts = <13 IRQ_TYPE_LEVEL_LOW>;
++
++		vdd-supply = <&tsp_avdd>;
++		vddo-supply = <&pm8916_l6>;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&tsp_irq_default>;
++
++		touchscreen-size-x = <2880>;
++		touchscreen-size-y = <5120>;
++	};
++};

@@ -1,0 +1,323 @@
+name: postmarketOS (experimental)
+
+# Galaxy On7 (on7ltechn) 的 postmarketOS 构建。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '**'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: 校验并打包设备包
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 1. 校验 deviceinfo 关键字段
+        run: |
+          set -e
+          INFO=device-samsung-on7ltechn/deviceinfo
+          test -f "$INFO"
+          grep -q 'deviceinfo_codename="samsung-on7ltechn"' "$INFO"
+          grep -q 'deviceinfo_dtb="qcom/msm8916-samsung-on7"' "$INFO"
+          grep -q 'deviceinfo_arch="aarch64"' "$INFO"
+          grep -q 'deviceinfo_flash_method="fastboot"' "$INFO"
+          echo "deviceinfo OK"
+
+      - name: 2. 校验 APKBUILD 校验和
+        run: |
+          set -e
+          cd device-samsung-on7ltechn
+          sha512sum -c <(awk '/^sha512sums="/{flag=1;next}/^"/{flag=0}flag' APKBUILD)
+          echo "sha512sums OK"
+
+      - name: 3. 打包
+        run: |
+          mkdir -p dist
+          tar czf dist/device-samsung-on7ltechn.tar.gz -C . device-samsung-on7ltechn docs README.md
+
+      - name: 4. 上传设备包
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmos-device-package
+          path: dist/
+          retention-days: 14
+
+  build:
+    name: 构建镜像（实验性）
+    needs: package
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    # 非阻塞：init 的提示词随 pmbootstrap 版本变化，失败时不影响仓库其他构建
+    continue-on-error: true
+    env:
+      PMB_DIR: ${{ github.workspace }}/../pmbuild/pmbootstrap
+      APORTS_DIR: ${{ github.workspace }}/../pmbuild/pmaports
+      WORK_DIR: ${{ github.workspace }}/../pmbuild/work
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 1. 检查磁盘
+        run: |
+          # 不再用 maximize-build-space：它创建的卷会让 apk 的 commit
+          # （rename）返回 ENOENT，导致 systemd 装不上。pmOS 构建约需
+          # 15~20GB，runner 自带的 60GB+ 够用。
+          df -h / /mnt 2>/dev/null || df -h /
+          mkdir -p "$PMB_DIR" "$WORK_DIR"
+          df -h "$(dirname "$PMB_DIR")"
+
+      - name: 2. 安装构建依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git python3 python3-pip python3-venv openssl \
+            gcc make flex bison bc libssl-dev cpio \
+            e2fsprogs android-sdk-libsparse-utils || true
+          # mkbootimg 包名在不同发行版里不一致，装不上时交给 pmbootstrap
+          sudo apt-get install -y mkbootimg || true
+
+      - name: 3. 检查 swap
+        run: |
+          # runner 镜像可能已启用 /swapfile，此时 fallocate 会报 Text file busy
+          if swapon --show --noheadings | grep -q .; then
+            echo "已存在 swap，跳过创建"
+            free -h
+            swapon --show
+            exit 0
+          fi
+          sudo fallocate -l 6G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=6144
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: 4. 拉取 pmbootstrap 与 pmaports
+        run: |
+          set -e
+          # 2024-10 起 pmOS 从 gitlab.com 迁到 gitlab.postmarketos.org
+          # 该实例偶发 502（GitLab is not responding），必须重试，否则一次抖动
+          # 就让整个构建白跑。
+          clone_retry() {
+            for i in 1 2 3 4 5; do
+              if git clone --depth=1 "$1" "$2"; then return 0; fi
+              rm -rf "$2"
+              echo "::warning::克隆 $1 失败（第 $i 次），$((i*20))s 后重试"
+              sleep $((i*20))
+            done
+            return 1
+          }
+          clone_retry https://gitlab.postmarketos.org/postmarketOS/pmbootstrap.git "$PMB_DIR"
+          clone_retry https://gitlab.postmarketos.org/postmarketOS/pmaports.git "$APORTS_DIR"
+          cd "$PMB_DIR" && git log --oneline -1
+          cd "$APORTS_DIR" && git log --oneline -1
+
+      - name: 5. 注入设备包并更新索引
+        run: |
+          set -e
+          mkdir -p "$APORTS_DIR/device/testing"
+          rm -rf "$APORTS_DIR/device/testing/device-samsung-on7ltechn"
+          cp -r "$GITHUB_WORKSPACE/device-samsung-on7ltechn" "$APORTS_DIR/device/testing/"
+          ls "$APORTS_DIR/device/testing/device-samsung-on7ltechn"
+
+      - name: 5b. 注入显示补丁到主线内核包
+        run: |
+          set -e
+          # 上游 msm8916-samsung-on7.dts 完全没有显示节点（无 mdss/panel/backlight），
+          # 所以内核从不初始化 DSI，开机只有 lk2nd 留下的背光、无画面。
+          # 这里给内核包加两个补丁：面板驱动新增 BV050HDM 变体 + dtb 加 DSI 节点。
+          KAPORT=$(find "$APORTS_DIR" -maxdepth 3 -type d \
+                     -name 'linux-postmarketos-qcom-msm8916' | head -1)
+          if [ -z "$KAPORT" ]; then
+            echo "::error::pmaports 里找不到 linux-postmarketos-qcom-msm8916"
+            find "$APORTS_DIR" -maxdepth 3 -type d -name 'linux-*' | head -20
+            exit 1
+          fi
+          echo "kernel aport: $KAPORT"
+          python3 "$GITHUB_WORKSPACE/scripts/inject-kernel-patches.py" \
+            "$KAPORT" "$GITHUB_WORKSPACE/kernel-patches"
+          # 面板/触摸都编进内核（不是模块）：DRM 在 rootfs 挂载前就要绑定 DSI，
+          # 触摸也就不依赖 udev 加载模块。
+          CFG=$(ls "$KAPORT"/config-*aarch64 2>/dev/null | head -1)
+          if [ -n "$CFG" ]; then
+            for OPT in CONFIG_DRM_PANEL_SAMSUNG_S6D7AA0 \
+                       CONFIG_BACKLIGHT_CLASS_DEVICE \
+                       CONFIG_TOUCHSCREEN_ZINITIX; do
+              sed -i "s/^${OPT}=.*/${OPT}=y/" "$CFG"
+              grep -q "^${OPT}=" "$CFG" || echo "${OPT}=y" >> "$CFG"
+            done
+            echo "config: $CFG"
+            grep -nE 'DRM_PANEL_SAMSUNG_S6D7AA0|BACKLIGHT_CLASS_DEVICE|TOUCHSCREEN_ZINITIX' "$CFG" | tail -5
+            # config 本身在 source= 里（写作 config-$_flavor.aarch64），
+            # 改过就必须同步 APKBUILD 里的 sha512，否则 abuild 直接校验失败
+            CFGSUM=$(sha512sum "$CFG" | cut -d' ' -f1)
+            sed -i -E "s|^[[:space:]]*[0-9a-f]{128}([[:space:]]+[^[:space:]]*config-[^[:space:]]*aarch64[[:space:]]*)$|\t${CFGSUM}\1|" \
+              "$KAPORT/APKBUILD"
+            grep -q "^[[:space:]]*$CFGSUM" "$KAPORT/APKBUILD" || {
+              echo "::error::APKBUILD 里的内核 config 校验和没更新成功"
+              exit 1
+            }
+          else
+            echo "::warning::未找到内核 config-*aarch64，面板驱动可能未启用"
+          fi
+          sed -n '/^source="/,/^"/p' "$KAPORT/APKBUILD"
+
+      - name: 6. 写入配置（跳过交互式 init）
+        run: |
+          set -e
+          cd "$PMB_DIR"
+          # pmbootstrap 3.x 的 init 只有交互模式，且提示词/顺序随版本变化。
+          # 直接按它的配置格式写文件：$XDG_CONFIG_HOME/pmbootstrap_v3.cfg
+          # 键名取自 `pmbootstrap config` 的合法 choice 列表。
+          mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}"
+          cat > "${XDG_CONFIG_HOME:-$HOME/.config}/pmbootstrap_v3.cfg" <<EOF
+          [pmbootstrap]
+          aports = $APORTS_DIR
+          work = $WORK_DIR
+          device = samsung-on7ltechn
+          ui = xfce4
+          user = user
+          hostname = on7ltechn
+          timezone = Asia/Shanghai
+          kernel = mainline
+          # systemd-262 的 usr/bin/udevadm 在 apk-tools 3 下 commit 报 ENOENT
+          # （native ext4 上同样复现），先用 openrc 绕过该包问题。
+          service_manager = openrc
+          # 缺失的依赖（含主线内核包）交给 pmbootstrap 自动编译
+          build_pkgs_on_install = true
+          channel = edge
+          # 分区尺寸：pmbootstrap 的算法是 root = rootfs 体积×1.2 + 50 + extra_space。
+          # boot_size 不能低于 512（pmbootstrap 有下限校验，写 256 会直接报
+          # "small/invalid boot_size"），所以整盘靠 extra_space 凑：
+          # 512 + (1335×1.2+50+9700) ≈ 11.6GiB，比 userdata 12.26GiB 小约 650M。
+          boot_size = 512
+          extra_space = 9700
+          EOF
+          # work 目录需要版本标记，否则 pmbootstrap 认为需要重新初始化
+          mkdir -p "$WORK_DIR/cache_git"
+          echo 8 > "$WORK_DIR/version"
+          cat "${XDG_CONFIG_HOME:-$HOME/.config}/pmbootstrap_v3.cfg"
+          ./pmbootstrap.py -q config device
+          ./pmbootstrap.py -q config ui
+          ./pmbootstrap.py -q config work
+          test "$(./pmbootstrap.py -q config device)" = "samsung-on7ltechn"
+          test "$(./pmbootstrap.py -q config ui)"     = "xfce4"
+          # 建立 apkindex（首次会初始化 native chroot，耗时几分钟）
+          ./pmbootstrap.py index 2>&1 | tail -5
+
+      - name: 7. 编译设备包并生成镜像
+        run: |
+          set -e
+          mkdir -p "$WORK_DIR"
+          cd "$PMB_DIR"
+          # 先编带显示补丁的主线内核（约 20~40 分钟）。pkgrel 已 +1，
+          # 本地包严格新于二进制仓库里的同名包，install 会用它。
+          if ! ./pmbootstrap.py --aports="$APORTS_DIR" build --arch aarch64 \
+                 linux-postmarketos-qcom-msm8916; then
+            echo "::error::内核包编译失败，下面是 chroot 日志尾部"
+            tail -60 "$WORK_DIR/log.txt" || true
+            exit 1
+          fi
+
+          ./pmbootstrap.py --aports="$APORTS_DIR" build device-samsung-on7ltechn
+
+          # firmware-samsung-on7 位于 device/archived/，不会进入二进制仓库，必须本地编译，
+          # 否则 device-...-nonfree-firmware 依赖的 firmware-samsung-on7-wcnss-nv 无法解析。
+          if ! ./pmbootstrap.py --aports="$APORTS_DIR" build firmware-samsung-on7; then
+            echo "::warning::firmware-samsung-on7 编译失败（源在 pastebin），先摘掉依赖以便出镜像"
+            sed -i 's/ firmware-samsung-on7-wcnss-nv//' \
+              "$APORTS_DIR/device/testing/device-samsung-on7ltechn/APKBUILD"
+            ./pmbootstrap.py --aports="$APORTS_DIR" build --force device-samsung-on7ltechn
+          fi
+          echo "== 本地仓库内容 =="
+          find "$WORK_DIR/packages" -maxdepth 3 -name '*.apk' 2>/dev/null | head -20 || true
+          # build 实际写入 packages/<channel>/aarch64，而 install 按 status 里的
+          # Channel（本环境是 systemd-edge）去取；两者名字不一致时要同步一份过去。
+          SRC=$(find "$WORK_DIR/packages" -name 'device-samsung-on7ltechn-*.apk' -printf '%h\n' 2>/dev/null | head -1)
+          if [ -z "$SRC" ]; then
+            echo "::error::build 没有产出 apk，检查 device 包名"
+            exit 1
+          fi
+          echo "apk 产出目录: $SRC"
+          ls -l "$SRC" | head
+          # pmbootstrap 3.12：build 写 packages/<channel>，install 按 status 里的
+          # Channel（systemd-<channel>）取，两者名字不一致时同步一份过去。
+          # 真目录而非软链，避免同一路径被 apk 当成两个仓库。
+          sudo mkdir -p /etc/apk/keys
+          sudo cp -f "$WORK_DIR"/config_abuild/*.rsa.pub /etc/apk/keys/ 2>/dev/null || true
+          CH=$(./pmbootstrap.py -q config channel 2>/dev/null || echo edge)
+          SM=$(./pmbootstrap.py -q config service_manager 2>/dev/null || echo openrc)
+          echo "channel=$CH service_manager=$SM"
+          for DST in "$WORK_DIR/packages/$SM-$CH/aarch64" \
+                     "$WORK_DIR/packages/systemd-$CH/aarch64" \
+                     "$WORK_DIR/packages/$CH/aarch64"; do
+            [ "$DST" = "$SRC" ] && continue
+            sudo mkdir -p "$DST"
+            sudo cp -f "$SRC"/*.apk "$DST"/
+            sudo "$WORK_DIR/apk.static" index --allow-untrusted \
+              --output "$DST/APKINDEX.tar.gz" "$DST"/*.apk >/dev/null 2>&1 || true
+            ls -l "$DST" | head -4
+          done
+          # --password 必填：install 会用 getpass 交互取密码，CI 无 TTY 则直接失败。
+          # 密码仅用于本次镜像（user/147147），首次启动后请自行修改。
+          # 保留 sshd：bringup 阶段需要 ssh user@172.16.42.1 进去看 dmesg。
+          # 不加 --split：内核与 dtb 必须留在根文件系统的 /boot 里，
+          # lk2nd 靠 userdata/boot/extlinux/extlinux.conf 引导；--split 会把
+          # /boot 拆到独立的 boot.img，导致 lk2nd 找不到系统。
+          set +e
+          ./pmbootstrap.py -v --aports="$APORTS_DIR" install --password 147147 2>&1 | tee /tmp/install.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            echo "=== install 失败（rc=$rc），最后 60 行原始输出 ==="
+            tail -60 /tmp/install.log
+            echo "=== work/log.txt 中的 ERROR 行 ==="
+            # 关键：apk 的 "unable to select packages" 详情在后续若干行里，
+            # 只 grep ERROR 会把真正缺的包名丢掉。
+            grep -aA40 "unable to select packages" "$WORK_DIR/log.txt" 2>/dev/null | tail -45 || true
+            echo "=== 重跑 apk add 以捕获 stderr ==="
+            sudo "$WORK_DIR/apk.static" --no-progress \
+              --root "$WORK_DIR/chroot_rootfs_samsung-on7ltechn" --arch aarch64 \
+              --cache-dir "$WORK_DIR/cache_apk_aarch64" \
+              --repository "$WORK_DIR/packages/systemd-edge" \
+              --repository "$WORK_DIR/packages/edge" \
+              add --no-interactive postmarketos-base-systemd 2>&1 \
+              | grep -aE "ERROR|error|WARNING|Failed|failed" | tail -30 || true
+            exit "$rc"
+          fi
+
+      - name: 8. 收集镜像
+        if: always()
+        run: |
+          mkdir -p dist
+          find "$WORK_DIR" "$PMB_DIR" -maxdepth 6 -name '*.img*' -size +1M \
+            -exec cp {} dist/ \; 2>/dev/null || true
+          ls -lh dist || true
+
+      - name: 9. 上传镜像
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmos-image-experimental
+          path: dist/
+          retention-days: 7
+
+      - name: 10. 失败时导出关键日志
+        if: failure()
+        run: |
+          mkdir -p dist/logs
+          find "$WORK_DIR" "$PMB_DIR" -maxdepth 4 -name '*.log' \
+            -exec cp {} dist/logs/ \; 2>/dev/null || true
+          ls -l dist/logs || true
+
+      - name: 11. 上传日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmos-build-log
+          path: dist/logs/
+          retention-days: 7

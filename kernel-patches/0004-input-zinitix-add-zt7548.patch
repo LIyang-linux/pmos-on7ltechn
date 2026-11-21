@@ -1,0 +1,10 @@
+--- a/drivers/input/touchscreen/zinitix.c
++++ b/drivers/input/touchscreen/zinitix.c
+@@ -747,6 +747,7 @@
+ 	{ .compatible = "zinitix,bt548" },
+ 	{ .compatible = "zinitix,bt554" },
+ 	{ .compatible = "zinitix,at100" },
++	{ .compatible = "zinitix,zt7548" }, /* Galaxy On7 (2015) */
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, zinitix_of_match);
