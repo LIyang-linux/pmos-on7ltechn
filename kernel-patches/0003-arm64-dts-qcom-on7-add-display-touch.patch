@@ -1,6 +1,6 @@
 --- a/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
 +++ b/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
-@@ -155,3 +155,142 @@
+@@ -155,3 +155,148 @@
  		bias-disable;
  	};
  };
@@ -14,6 +14,12 @@
 +	/* Downstream raises S4 to 2.1V for the panel (vddb) */
 +	regulator-min-microvolt = <2100000>;
 +	regulator-max-microvolt = <2100000>;
++};
++
++/* GPU: Adreno 306 (kgsl-3d0). Base msm8916.dtsi ships it disabled. */
++/* Firmware a300_pfp.fw / a300_pm4.fw is shipped in the device package. */
++&gpu {
++	status = "okay";
 +};
 +
 +&mdss {
