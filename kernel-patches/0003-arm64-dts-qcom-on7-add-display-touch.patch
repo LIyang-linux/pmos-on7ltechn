@@ -133,8 +133,8 @@
 +		interrupt-parent = <&tlmm>;
 +		interrupts = <13 IRQ_TYPE_EDGE_FALLING>;
 +
-+		vdd-supply = <&tsp_avdd>;
-+		vddo-supply = <&pm8916_l6>;
++		vcca-supply = <&tsp_avdd>;
++		vdd-supply = <&pm8916_l6>;
 +
 +		pinctrl-names = "default";
 +		pinctrl-0 = <&tsp_irq_default>;
