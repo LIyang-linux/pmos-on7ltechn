@@ -1,0 +1,200 @@
+From: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
+Subject: [PATCH] Input: zinitix - add ZT7548 init sequence for Galaxy On7
+
+The stock Samsung zt7548_ts driver (SM-G6000, Linux 3.10.49) differs
+from the BT541-based init sequence in several ways:
+
+ - it verifies the 0x12c boot checksum (0x55aa) before touching the IC
+   and waits 150ms (not 40ms) after program start,
+ - it enables the resolution expander (0x186 = 4), which makes the IC
+   report coordinates scaled by 4, and never writes X/Y resolution
+   registers itself,
+ - it runs with TOUCH_POINT_MODE 1 instead of 2,
+ - it clears the optional settings register, triggers a soft
+   calibration and programs the periodical interrupt interval (0xf1).
+
+Without these the ZT7548 in the Galaxy On7 (SM-G6000) boots but never
+reports touch events.
+
+Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
+---
+--- a/drivers/input/touchscreen/zinitix.c
++++ b/drivers/input/touchscreen/zinitix.c
+@@ -80,6 +80,15 @@
+ #define ZINITIX_BTN_WIDTH			0x016d
+ 
+ #define ZINITIX_CHECKSUM_RESULT			0x012c
++
++/*
++ * ZT7548 specifics, from the stock Samsung zt7548_ts driver
++ * (Samsung Galaxy On7 (SM-G6000), Linux 3.10.49).
++ */
++#define ZT75XX_RESOLUTION_EXPANDER		0x0186
++#define ZT7548_RESOLUTION_EXPANDER_VALUE	4 /* report coords scaled by 4 */
++#define ZT7548_BOOT_CHECKSUM			0x55aa
++#define ZT7548_FIRMWARE_ON_DELAY		150 /* ms, stock waits this long */
+ 
+ #define ZINITIX_INIT_FLASH			0x01d0
+ #define ZINITIX_WRITE_FLASH			0x01d1
+@@ -142,6 +151,7 @@
+ };
+ 
+ struct bt541_ts_data {
++	bool is_zt7548;
+ 	struct i2c_client *client;
+ 	struct input_dev *input_dev;
+ 	struct touchscreen_properties prop;
+@@ -200,12 +210,44 @@
+ 	int error;
+ 	u16 int_flags = 0;
+ 
++	if (bt541->is_zt7548) {
++		/*
++		 * The stock driver verifies this boot signature before
++		 * touching the IC; a mismatch means the firmware did
++		 * not boot and register access would be meaningless.
++		 */
++		__le16 checksum;
++
++		error = zinitix_read_data(client, ZINITIX_CHECKSUM_RESULT,
++					  &checksum, sizeof(checksum));
++		if (error) {
++			dev_err(&client->dev,
++				"Failed to read ZT7548 boot checksum\n");
++			return error;
++		}
++		if (le16_to_cpu(checksum) != ZT7548_BOOT_CHECKSUM) {
++			dev_err(&client->dev,
++				"ZT7548 boot checksum mismatch: %#04x\n",
++				le16_to_cpu(checksum));
++			return -EIO;
++		}
++	}
++
+ 	error = zinitix_write_cmd(client, ZINITIX_SWRESET_CMD);
+ 	if (error) {
+ 		dev_err(&client->dev, "Failed to write reset command\n");
+ 		return error;
+ 	}
+ 
++	/* The stock driver scales reported coordinates by 4. */
++	if (bt541->is_zt7548) {
++		error = zinitix_write_u16(client,
++					  ZT75XX_RESOLUTION_EXPANDER,
++					  ZT7548_RESOLUTION_EXPANDER_VALUE);
++		if (error)
++			return error;
++	}
++
+ 	error = zinitix_write_u16(client, ZINITIX_INT_ENABLE_FLAG, 0x0);
+ 	if (error) {
+ 		dev_err(&client->dev,
+@@ -214,15 +256,21 @@
+ 	}
+ 
+ 	/* initialize */
+-	error = zinitix_write_u16(client, ZINITIX_X_RESOLUTION,
+-				  bt541->prop.max_x);
+-	if (error)
+-		return error;
+-
+-	error = zinitix_write_u16(client, ZINITIX_Y_RESOLUTION,
+-				  bt541->prop.max_y);
+-	if (error)
+-		return error;
++	if (!bt541->is_zt7548) {
++		/*
++		 * The stock ZT7548 driver never writes the resolution
++		 * registers; the firmware works them out by itself.
++		 */
++		error = zinitix_write_u16(client, ZINITIX_X_RESOLUTION,
++					  bt541->prop.max_x);
++		if (error)
++			return error;
++
++		error = zinitix_write_u16(client, ZINITIX_Y_RESOLUTION,
++					  bt541->prop.max_y);
++		if (error)
++			return error;
++	}
+ 
+ 	error = zinitix_write_u16(client, ZINITIX_SUPPORTED_FINGER_NUM,
+ 				  MAX_SUPPORTED_FINGER_NUM);
+@@ -243,6 +291,18 @@
+ 				  bt541->zinitix_mode);
+ 	if (error)
+ 		return error;
++
++	if (bt541->is_zt7548) {
++		/* optional settings register starts out cleared */
++		error = zinitix_write_u16(client, ZINITIX_USB_DETECT, 0);
++		if (error)
++			return error;
++
++		/* soft calibration */
++		error = zinitix_write_cmd(client, ZINITIX_CALIBRATE_CMD);
++		if (error)
++			return error;
++	}
+ 
+ 	int_flags = BIT_PT_CNT_CHANGE | BIT_DOWN | BIT_MOVE | BIT_UP;
+ 
+@@ -257,6 +317,18 @@
+ 	for (i = 0; i < 10; i++) {
+ 		zinitix_write_cmd(client, ZINITIX_CLEAR_INT_STATUS_CMD);
+ 		udelay(10);
++	}
++
++	if (bt541->is_zt7548) {
++		/*
++		 * ESD watchdog interval: SCAN_RATE_HZ *
++		 * ESD_TIMER_INTERVAL in the stock driver.
++		 */
++		error = zinitix_write_u16(client,
++					  ZINITIX_PERIODICAL_INTERRUPT_INTERVAL,
++					  100);
++		if (error)
++			return error;
+ 	}
+ 
+ 	return 0;
+@@ -326,7 +398,8 @@
+ 			"Failed to send power sequence (program start)\n");
+ 		return error;
+ 	}
+-	msleep(FIRMWARE_ON_DELAY);
++	msleep(bt541->is_zt7548 ? ZT7548_FIRMWARE_ON_DELAY :
++				  FIRMWARE_ON_DELAY);
+ 
+ 	return 0;
+ }
+@@ -558,6 +631,8 @@
+ 		return -ENOMEM;
+ 
+ 	bt541->client = client;
++	bt541->is_zt7548 = of_device_is_compatible(client->dev.of_node,
++						   "zinitix,zt7548");
+ 	i2c_set_clientdata(client, bt541);
+ 
+ 	error = zinitix_init_regulators(bt541);
+@@ -599,11 +674,15 @@
+ 	error = device_property_read_u32(&client->dev, "zinitix,mode",
+ 					 &bt541->zinitix_mode);
+ 	if (error < 0) {
+-		/* fall back to mode 2 */
+-		bt541->zinitix_mode = DEFAULT_TOUCH_POINT_MODE;
+-	}
+-
+-	if (bt541->zinitix_mode != 2) {
++		/*
++		 * The stock ZT7548 driver runs with TOUCH_POINT_MODE 1,
++		 * the BT541-based devices with mode 2.
++		 */
++		bt541->zinitix_mode = bt541->is_zt7548 ? 1 :
++				      DEFAULT_TOUCH_POINT_MODE;
++	}
++
++	if (!bt541->is_zt7548 && bt541->zinitix_mode != 2) {
+ 		/*
+ 		 * If there are devices that don't support mode 2, support
+ 		 * for other modes (0, 1) will be needed.

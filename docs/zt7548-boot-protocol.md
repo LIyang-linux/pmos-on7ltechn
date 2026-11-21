@@ -6,27 +6,31 @@
 Image → vmlinux-to-elf 解出 kallsyms（112872 符号）→ capstone 反汇编。
 工具脚本与产物在 `D:\DSH\boot-extract\`（Image、vmlinux.elf、反汇编文本、fw blob）。
 
+后记：反汇编完成后在 LineageOS `android_kernel_samsung_msm8916`（cm-14.1）树里找到了
+`zt7548_ts.c`/`zt7548_ts.h` 完整源码（`D:\DSH\stock-driver-src\`），本文所有结论已按
+源码校对；反汇编与源码完全一致。
+
 ## 关键结论：主线触摸不亮的根因
 
-主线 `zinitix.c` 是按 BT541 协议写的；ZT7548 的 boot 协议和寄存器语义都不同。
-原厂 `zt7548_ts.c`（编在原厂内核里）的流程与之有实质差异，芯片大概率卡在
-boot/handshake 阶段（I2C 写会被 ACK，所以 dmesg 可能完全安静）。
+**boot 序列主线和原厂其实一致**（0xC000=1 → cmd 0xC004 → 0xC002=1 → 0xC001=1，
+主线 zinitix.c 363-401 行全都有；早先笔记里"主线缺两步"的说法是对照了错误版本，
+已更正）。真正的差异在 **boot 之后的 init 段**，见下方差异表——由 patch 0005 修复。
 
 ## 原厂上电序列（zt7548_power_control，重试 4 次，每次间隔 200ms）
 
 ```c
 pdata->power(1);                  // 稳压 + gpio（zt7548_power: vdd LDO 3.3V 设压 + enable）
 for (retry = 0; retry < 4; retry++) {
-    write_reg(0xC000, 1);         // ✓ 主线有
+    write_reg(0xC000, 1);
     usleep_range(...);
-    read_data(...);               // 读 chip code（仅 debug 打印 "chip code = 0x%x"）
+    read_data(...);               // 读 chip code（debug 打印）
     usleep_range(10);
-    write_cmd(0xC004);            // ✗ 主线缺失！2 字节裸写（不带寄存器地址）
+    write_cmd(0xC004);            // ← 主线也有（"intn clear"）
     usleep_range(10);
-    write_reg(0xC002, 1);         // ✗ 主线缺失！
-    zinitix_delay(2);             // ~2ms
-    write_reg(0xC001, 1);         // ✓ 主线有（program start）
-    if (ok) { msleep(150); return 0; }
+    write_reg(0xC002, 1);         // ← 主线也有（"nvm init"）
+    zinitix_delay(2);
+    write_reg(0xC001, 1);         // program start
+    if (ok) { msleep(150); return 0; }   // ← 主线只等 40ms，差在此
     msleep(200);
 }
 ```
@@ -62,20 +66,29 @@ esd_timer_start();
   （ts_upgrade_firmware → ts_hw_calibration）——mini_init 路径**不需要**固件下载
 - 备用触摸方案: imagis IST3038C（`tsp_imagis/ist3038c_o7.fw`，另一批次机型）
 
-## 与主线 zinitix.c 的差异汇总
+## 与主线 zinitix.c 的差异汇总（patch 0005 修复项）
 
-| 项 | 主线 (BT541) | 原厂 (ZT7548) |
-|---|---|---|
-| boot | 0xC000=1 → 0xC001=1 → msleep(50) | 0xC000=1 → **cmd 0xC004** → **0xC002=1** → 0xC001=1 → msleep(150)，重试 4 次 |
-| boot 校验 | 读 0xF0 版本号 | 读 0x12C == 0x55AA |
-| 软复位 | write 0x0010 = 1 | write_cmd(0x0000)（裸写） |
-| touch mode | write 0x0100 = 2 | 一套完全不同的寄存器（0x186/0xB0/0x15/0x19/0x10/0x116/0xF0/0xF1/0x7F） |
-| 固件 | 不加载 | 版本不符时烧录 44KB fw |
+| 项 | 主线 (BT541) | 原厂 (ZT7548) | patch 0005 |
+|---|---|---|---|
+| boot 序列 | 0xC000/0xC004/0xC002/0xC001 | 相同 | 不改 |
+| boot 后延时 | msleep(40) | **msleep(150)** | ✅ zt7548 走 150ms |
+| boot 校验 | 无 | 读 0x12C == **0x55AA** | ✅ 已加（不符则 -EIO） |
+| 软复位 | cmd 0x0000 | 相同 | 不改 |
+| **分辨率扩展器** | 无此概念 | **0x186 = 4**（坐标 ×4 上报） | ✅ 已加 |
+| X/Y 分辨率寄存器 | 写 prop.max_x/y | **从不写**（固件自算） | ✅ zt7548 跳过 |
+| touch mode | 0x10 = 2 | **0x10 = 1**（TOUCH_POINT_MODE） | ✅ zt7548 默认 1 |
+| optional setting | 无 | 0x116 = m_optional_mode（初值 0） | ✅ 写 0 |
+| 软校准 | 无 | cmd 0x0006 | ✅ 已加 |
+| ESD 周期中断 | 无 | 0xF1 = SCAN_RATE_HZ×INTERVAL = 100 | ✅ 已加 |
+| 固件 | 不加载 | 版本不符时烧录 44KB fw | 暂不移植（mini_init 不需要） |
 
-## 修复计划（patch 0005）
+注意：固件路径 `tsp_zinitix/zt7538_o7.fw`；request_firmware 失败时回退内核内嵌 blob
+（已提取: `D:\DSH\zt7538_o7.fw`，45056 字节）。mini_init 路径**不需要**固件下载。
+备用触摸方案: imagis IST3038C（`ist3038c_o7.fw`，另一批次机型）。
 
-1. 第一步（最小改动）: 在 `zinitix_send_power_on_sequence` 的 zt7548 分支补上
-   `write_cmd(0xC004)`（2 字节裸写）和 `write_reg(0xC002, 1)`，msleep 150ms，重试 4 次
-2. 上机验证：dmesg 看 chip code / 版本读取是否成功、`/proc/interrupts` 是否有中断
-3. 若 boot 成功但无事件 → 按 mini_init 序列改写 init 寄存器段
-4. 若 0x12C != 0x55AA → 需要移植固件下载（ts_upgrade_firmware 协议，后续逆向）
+## 验证清单（patch 0005 刷入后）
+
+1. dmesg 无 "ZT7548 boot checksum mismatch" → boot 成功
+2. `grep zinitix /proc/interrupts` 边摸边看计数
+3. `evtest` 摸四角：坐标范围应到 2879/5119（0x186=4 生效，DT 的 size 2880/5120 正确）
+4. 若 checksum mismatch → 芯片没完成 boot，需查供电时序或移植固件下载路径
