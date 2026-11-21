@@ -14,8 +14,8 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 ---
  drivers/power/supply/Kconfig      |  8 ++++++++
  drivers/power/supply/Makefile     |  1 +
- drivers/power/supply/sm5703-fuelgauge.c | 186 ++++++++++++++++++++++++++
- 3 files changed, 195 insertions(+)
+ drivers/power/supply/sm5703-fuelgauge.c | 221 ++++++++++++++++++++++++++
+ 3 files changed, 230 insertions(+)
  create mode 100644 drivers/power/supply/sm5703-fuelgauge.c
 ---
 --- a/drivers/power/supply/Kconfig
@@ -42,7 +42,7 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 +obj-$(CONFIG_POWER_SUPPLY_SM5703)	+= sm5703-fuelgauge.o
 --- /dev/null
 +++ b/drivers/power/supply/sm5703-fuelgauge.c
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,221 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * SiliconMitus SM5703 fuel gauge driver for mainline Linux
@@ -247,7 +247,7 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 +
 +static const struct of_device_id sm5703_fg_of_match[] = {
 +	{ .compatible = "sm5703-fuelgauge,i2c" },
-	{ .compatible = "sm5703-fuelgauge" },
++	{ .compatible = "sm5703-fuelgauge" },
 +	{ }
 +};
 +MODULE_DEVICE_TABLE(of, sm5703_fg_of_match);
