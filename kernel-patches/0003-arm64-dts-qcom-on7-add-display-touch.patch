@@ -1,6 +1,6 @@
 --- a/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
 +++ b/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
-@@ -155,3 +155,126 @@
+@@ -155,3 +155,142 @@
  		bias-disable;
  	};
  };
@@ -8,10 +8,7 @@
 +/*
 + * Display: S6D7AA0X62 BV050HDM, 720x1280.
 + * Timings and init sequence are taken from the Samsung downstream DTS
-+ * (o7lte-chn-rev03), where the DSI controller declares
-+ *   qcom,platform-reset-gpio  = <&tlmm 25 0>   (reset, active high)
-+ *   qcom,platform-enable-gpio = <&tlmm 16 0>   (panel enable, active high)
-+ *   vddb = PM8916 S4 @2.1V, vddc = PM8916 L5 @1.8V
++ * (o7lte-chn-rev03), panel vddb = PM8916 S4 2.1V, vddc = PM8916 L5 1.8V.
 + */
 +&pm8916_s4 {
 +	/* Downstream raises S4 to 2.1V for the panel (vddb) */
@@ -32,8 +29,10 @@
 +		compatible = "samsung,s6d7aa0x62-bv050hdm";
 +		reg = <0>;
 +
-+		/* driver gets reset as GPIOD_OUT_HIGH, then pulses it */
-+		reset-gpios = <&tlmm 25 GPIO_ACTIVE_HIGH>;
++		power-supply = <&pm8916_s4>;
++		vmipi-supply = <&pm8916_l5>;
++
++		reset-gpios = <&tlmm 25 GPIO_ACTIVE_LOW>;
 +
 +		port {
 +			panel_in: endpoint {
@@ -80,9 +79,30 @@
 +		drive-strength = <2>;
 +		bias-disable;
 +	};
++
++	panel_en_default: panel-en-default-state {
++		pins = "gpio16";
++		function = "gpio";
++
++		drive-strength = <2>;
++		bias-disable;
++	};
 +};
 +
 +/ {
++	/* Downstream qcom,platform-enable-gpio of the DSI controller */
++	panel_en: regulator-panel-en {
++		compatible = "regulator-fixed";
++		regulator-name = "panel_en";
++
++		gpio = <&tlmm 16 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&panel_en_default>;
++	};
++
 +	/*
 +	 * Touch: Zinitix ZT7548 on blsp_i2c5 (SDA gpio18 / SCL gpio19),
 +	 * IRQ on gpio13, 3.0V analog rail switched by gpio8,
@@ -111,7 +131,7 @@
 +		reg = <0x20>;
 +
 +		interrupt-parent = <&tlmm>;
-+		interrupts = <13 IRQ_TYPE_LEVEL_LOW>;
++		interrupts = <13 IRQ_TYPE_EDGE_FALLING>;
 +
 +		vdd-supply = <&tsp_avdd>;
 +		vddo-supply = <&pm8916_l6>;
