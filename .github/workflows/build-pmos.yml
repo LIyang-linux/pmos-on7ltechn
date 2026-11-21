@@ -129,7 +129,8 @@ jobs:
           set -e
           # 上游 msm8916-samsung-on7.dts 完全没有显示节点（无 mdss/panel/backlight），
           # 所以内核从不初始化 DSI，开机只有 lk2nd 留下的背光、无画面。
-          # 这里给内核包加两个补丁：面板驱动新增 BV050HDM 变体 + dtb 加 DSI 节点。
+          # 这里给内核包加三个补丁：面板驱动新增 BV050HDM 变体 + dtb 加 DSI/触摸节点
+          # + zinitix 驱动补 zt7548 compatible。
           KAPORT=$(find "$APORTS_DIR" -maxdepth 3 -type d \
                      -name 'linux-postmarketos-qcom-msm8916' | head -1)
           if [ -z "$KAPORT" ]; then
@@ -147,7 +148,8 @@ jobs:
             for OPT in CONFIG_DRM_PANEL_SAMSUNG_S6D7AA0 \
                        CONFIG_BACKLIGHT_CLASS_DEVICE \
                        CONFIG_TOUCHSCREEN_ZINITIX; do
-              sed -i "s/^${OPT}=.*/${OPT}=y/" "$CFG"
+              sed -i -e "s/^${OPT}=.*/${OPT}=y/" \
+                     -e "s/^# ${OPT} is not set/${OPT}=y/" "$CFG"
               grep -q "^${OPT}=" "$CFG" || echo "${OPT}=y" >> "$CFG"
             done
             echo "config: $CFG"

@@ -31,6 +31,30 @@ KAPORT=$(find "$APORTS" -maxdepth 3 -type d -name 'linux-postmarketos-qcom-msm89
 if [ -n "$KAPORT" ]; then
     echo "==> 给 $KAPORT 注入显示/触摸补丁"
     python3 "$REPO_ROOT/scripts/inject-kernel-patches.py" "$KAPORT" "$REPO_ROOT/kernel-patches"
+
+    # 与 CI 保持一致：把面板/触摸驱动编进内核（=y），而不是只做模块。
+    # 不这样做的话，initramfs 阶段没有面板驱动，开机看不到 logo。
+    CFG=$(ls "$KAPORT"/config-*aarch64 2>/dev/null | head -1 || true)
+    if [ -n "$CFG" ]; then
+        echo "==> 强制内核配置：$CFG"
+        for OPT in CONFIG_DRM_PANEL_SAMSUNG_S6D7AA0 \
+                   CONFIG_BACKLIGHT_CLASS_DEVICE \
+                   CONFIG_TOUCHSCREEN_ZINITIX; do
+            sed -i -e "s/^${OPT}=.*/${OPT}=y/" \
+                   -e "s/^# ${OPT} is not set/${OPT}=y/" "$CFG"
+            grep -q "^${OPT}=" "$CFG" || echo "${OPT}=y" >> "$CFG"
+        done
+        # config 在 source= 里，改过就要同步 APKBUILD 的 sha512，否则 abuild 校验失败
+        CFGSUM=$(sha512sum "$CFG" | cut -d' ' -f1)
+        sed -i -E "s|^[[:space:]]*[0-9a-f]{128}([[:space:]]+[^[:space:]]*config-[^[:space:]]*aarch64[[:space:]]*)$|\t${CFGSUM}\1|" \
+            "$KAPORT/APKBUILD"
+        grep -q "^[[:space:]]*${CFGSUM}" "$KAPORT/APKBUILD" || {
+            echo "!! APKBUILD 里的内核 config 校验和没更新成功" >&2
+            exit 1
+        }
+    else
+        echo "!! 未找到内核 config-*aarch64，面板驱动可能未启用" >&2
+    fi
 fi
 
 ./pmbootstrap.py index
