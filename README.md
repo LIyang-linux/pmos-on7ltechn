@@ -137,6 +137,22 @@ sudo ip addr add 172.16.42.2/24 dev usb0
 ssh user@172.16.42.1          # 默认密码 147147
 ```
 
+### Windows 主机注意：别指望 adb
+
+**pmOS 不运行 adbd**，`adb devices` 永远是空列表、`adb shell` 进不去——设计如此，不是故障。
+initramfs 只提供三种 USB gadget：`network`、`mass_storage`、`ACM 串口`。
+
+而 gadget 默认 VID:PID 是 `18D1:D001`（Google 家的 ID）。装了 Google USB Driver 的 Windows
+会按 VID/PID 把这块**网卡**认成 “Android ADB Recovery Interface” 并绑到 WinUSB，于是设备
+管理器里有个 ADB 设备，但既没有网卡也 ping 不通 `172.16.42.1`。本设备 deviceinfo 已覆盖为
+`1d6b:0104` + 强制 `rndis.usb0` 规避此问题。
+
+Windows 下：设备管理器应出现 “USB Ethernet/RNDIS Gadget”；给该网卡配静态 IP
+`172.16.42.2/24`（不设网关）；然后 `ssh user@172.16.42.1`。
+
+应急控制台：内核 cmdline 加 `pmos.debug-shell`，gadget 会切成 ACM 串口，Windows 出现一个
+COM 口，PuTTY 以 115200 8N1 打开即是 initramfs shell。
+
 ```bash
 cat /sys/class/drm/card0-DSI-1/status   # 期望 connected
 ls /sys/class/backlight/                # 期望有 s6d7aa0 背光节点
