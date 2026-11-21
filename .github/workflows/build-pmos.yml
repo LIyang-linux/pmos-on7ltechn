@@ -177,11 +177,15 @@ jobs:
           # 这里取 aports 源码放进 pmaports，让 pmbootstrap 编一个版本号更高的本地包顶替。
           VTE3="$APORTS_DIR/community/vte3"
           mkdir -p "$VTE3"
+          # GitLab 的 raw 端点会对默认 curl UA 返回 418，改用 API（带 UA）。
           for f in APKBUILD fix-W_EXITCODE.patch; do
-            curl -fsSL --retry 5 --retry-delay 10 \
-              "https://gitlab.alpinelinux.org/alpine/aports/-/raw/master/community/vte3/$f" \
+            enc=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''))" "community/vte3/$f")
+            curl -fsSL --retry 5 --retry-delay 10 -A "Mozilla/5.0" \
+              "https://gitlab.alpinelinux.org/api/v4/projects/alpine%2Faports/repository/files/$enc/raw?ref=master" \
               -o "$VTE3/$f"
+            test -s "$VTE3/$f"
           done
+          grep -q '^pkgname=vte3' "$VTE3/APKBUILD"
           # 上游修复为 r5，本地再 +1，保证版本号永远高于二进制仓库里的同名包
           sed -i -E 's/^pkgrel=.*/pkgrel=6/' "$VTE3/APKBUILD"
           grep -nE '^pkgname=|^pkgver=|^pkgrel=' "$VTE3/APKBUILD"
