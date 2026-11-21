@@ -96,6 +96,25 @@ jobs:
           sudo swapon /swapfile
           free -h
 
+      - name: 3b. 恢复 ccache（内核编译加速）
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('kernel-patches/**') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: 3c. 恢复 pmbootstrap 下载缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/../pmbuild/work/cache_git
+            ${{ github.workspace }}/../pmbuild/work/cache_apk_aarch64
+            ${{ github.workspace }}/../pmbuild/work/cache_apk_x86_64
+          key: pmos-dl-${{ runner.os }}-v1
+          restore-keys: |
+            pmos-dl-${{ runner.os }}-
+
       - name: 4. 拉取 pmbootstrap 与 pmaports
         run: |
           set -e
