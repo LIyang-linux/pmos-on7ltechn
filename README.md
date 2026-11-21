@@ -150,8 +150,9 @@ initramfs 只提供三种 USB gadget：`network`、`mass_storage`、`ACM 串口`
 Windows 下：设备管理器应出现 “USB Ethernet/RNDIS Gadget”；给该网卡配静态 IP
 `172.16.42.2/24`（不设网关）；然后 `ssh user@172.16.42.1`。
 
-应急控制台：内核 cmdline 加 `pmos.debug-shell`，gadget 会切成 ACM 串口，Windows 出现一个
-COM 口，PuTTY 以 115200 8N1 打开即是 initramfs shell。
+应急控制台：**开机时按住音量减（或左 Ctrl）**即进入 initramfs debug shell，此时 gadget
+会切成 ACM 串口（initramfs 的 `check_keys` 逻辑），Windows 下出现一个 COM 口，PuTTY 以
+115200 8N1 打开即可。注意这不是内核 cmdline 参数，没有 `pmos.debug-shell` 这种开关。
 
 ```bash
 cat /sys/class/drm/card0-DSI-1/status   # 期望 connected
