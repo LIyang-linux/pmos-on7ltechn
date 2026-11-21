@@ -2,7 +2,7 @@
 pkgname=device-samsung-on7ltechn
 pkgdesc="Samsung Galaxy On7 (2015) (China, SM-G6000)"
 pkgver=0
-pkgrel=1
+pkgrel=2
 url="https://postmarketos.org"
 license="MIT"
 arch="aarch64"
@@ -26,6 +26,11 @@ build() {
 
 package() {
 	devicepkg_package $startdir $pkgname
+	# 屏幕旋转：显示转 90°，触摸用 xinput 矩阵同步（见 rotate-screen.sh）
+	install -Dm755 "$startdir"/rotate-screen.sh \
+		"$pkgdir"/usr/local/bin/rotate-screen.sh
+	install -Dm644 "$startdir"/screen-rotate.desktop \
+		"$pkgdir"/etc/xdg/autostart/screen-rotate.desktop
 }
 
 nonfree_firmware() {
