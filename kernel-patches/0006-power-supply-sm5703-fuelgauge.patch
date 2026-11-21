@@ -246,7 +246,8 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 +}
 +
 +static const struct of_device_id sm5703_fg_of_match[] = {
-+	{ .compatible = "sm5703-fuelgauge" },
++	{ .compatible = "sm5703-fuelgauge,i2c" },
+	{ .compatible = "sm5703-fuelgauge" },
 +	{ }
 +};
 +MODULE_DEVICE_TABLE(of, sm5703_fg_of_match);
