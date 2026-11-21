@@ -2,7 +2,7 @@
 pkgname=device-samsung-on7ltechn
 pkgdesc="Samsung Galaxy On7 (2015) (China, SM-G6000)"
 pkgver=0
-pkgrel=0
+pkgrel=1
 url="https://postmarketos.org"
 license="MIT"
 arch="aarch64"
@@ -35,6 +35,6 @@ nonfree_firmware() {
 }
 
 sha512sums="
-7fff327735dab3f34e8acf6da19c16f18aaf980139c3fc6f524880b6405c7dc6374782f80616d9706d77fe82c48010fff5231361455aeed937e24715cd3a76e9  deviceinfo
+d456a3741841b77f47401816d778e1df39617c67ddcc5484c52c22eebda29700384a4b9b8628b87fa6a614bf690c700aae5592be46b6a7b98498561eb5459fb0  deviceinfo
 cea8239b960b61b55e487c94313cefe6c3ce2cb9ad4e4719ff9e29f685ca5f8f167a9a2fe261f49b9e52928821398f665d450c07f6467afd97ca58c7d5354e26  modules-initfs
 "
