@@ -366,11 +366,13 @@ jobs:
           retention-days: 7
 
       - name: 10. 失败时导出关键日志
-        if: failure()
+        if: always()
         run: |
           mkdir -p dist/logs
-          find "$WORK_DIR" "$PMB_DIR" -maxdepth 4 -name '*.log' \
+          # 注意 log.txt 是小写，*.log 匹配不到，必须显式收集
+          find "$WORK_DIR" "$PMB_DIR" -maxdepth 4 \( -name '*.log' -o -name 'log.txt' -o -name 'install.log' \) \
             -exec cp {} dist/logs/ \; 2>/dev/null || true
+          cp -f /tmp/install.log dist/logs/ 2>/dev/null || true
           ls -l dist/logs || true
 
       - name: 11. 上传日志
