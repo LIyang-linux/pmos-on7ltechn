@@ -2,7 +2,7 @@
 Type=Application
 Name=Screen Rotate
 Comment=Rotate DSI-1 and touch input 90 degrees (Galaxy On7)
-Exec=/usr/local/bin/rotate-screen.sh
+Exec=/usr/bin/rotate-screen.sh
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
