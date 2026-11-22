@@ -56,7 +56,7 @@ Samsung Galaxy On7 国行版（SM-G6000 / `on7ltechn`，MSM8916，2GB RAM）的 
 | 电量显示 | ✅ 已通 | SM5703 fuelgauge 驱动（patch 0006），`/sys/class/power_supply/sm5703-fuelgauge` |
 | 充电检测 | ✅ 已通 | fuelgauge 上报充电/放电状态 |
 | 充电控制 | 待做 | 内核暂无 SM5703 charger 驱动（可用 Recovery 充电） |
-| GPU | ✅ 已启用 | `&gpu status = "okay"`（patch 0003），固件由 `firmware-qcom-adreno-a300` 提供 |
+| GPU | 🔧 待验证 | 已在 patch 0003 启用 `&gpu status = "okay"`，固件由 `firmware-qcom-adreno-a300` 提供；能否真正加速未实测 |
 | 音频 | 待做 | 需补 WCD 音频路由与 UCM |
 | 加速度计 | 待做 | 需确认型号并补 IIO 驱动/设备树 |
 | GPS | 待做 | 依赖 modem/gnss 子系统 |
