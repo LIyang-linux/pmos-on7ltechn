@@ -55,7 +55,7 @@ Samsung Galaxy On7 国行版（SM-G6000 / `on7ltechn`，MSM8916，2GB RAM）的 
 | WiFi | 待验证 | 依赖 `firmware-samsung-on7-wcnss-nv`（源在 pastebin，偶发拉不到） |
 | 电量显示 | ✅ 已通 | SM5703 fuelgauge 驱动（patch 0006），`/sys/class/power_supply/sm5703-fuelgauge` |
 | 充电检测 | ✅ 已通 | fuelgauge 上报充电/放电状态 |
-| 充电控制 | 待做 | 内核暂无 SM5703 charger 驱动（可用 Recovery 充电） |
+| 充电控制 | ✅ 已修 | SM5703 charger 驱动（patch 0007/0008），probe 时脉冲 mrstb 退出 shipping mode，支持停充 |
 | GPU | 🔧 修复中 | 已定位：GPU 在内核早期 probe，那时 rootfs 未挂载，`request_firmware()` 拿不到 `a300_*.fw` → kgsl 设备未创建 → phoc 退回软件渲染 → 卡死。修复：把固件注入 initramfs |
 | 音频 | 待做 | 需补 WCD 音频路由与 UCM |
 | 加速度计 | 待做 | 需确认型号并补 IIO 驱动/设备树 |
