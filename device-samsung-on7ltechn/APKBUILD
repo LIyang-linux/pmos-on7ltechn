@@ -2,7 +2,7 @@
 pkgname=device-samsung-on7ltechn
 pkgdesc="Samsung Galaxy On7 (2015) (China, SM-G6000)"
 pkgver=0
-pkgrel=5
+pkgrel=6
 url="https://postmarketos.org"
 license="MIT"
 arch="aarch64"
@@ -26,12 +26,6 @@ build() {
 
 package() {
 	devicepkg_package $startdir $pkgname
-	# 屏幕旋转：显示转 90°，触摸用 xinput 矩阵同步（见 rotate-screen.sh）
-	# 注意：abuild 禁止 /usr/local 与 /lib（usrmerge 下用 /usr/lib）
-	install -Dm755 "$startdir"/rotate-screen.sh \
-		"$pkgdir"/usr/bin/rotate-screen.sh
-	install -Dm644 "$startdir"/screen-rotate.desktop \
-		"$pkgdir"/etc/xdg/autostart/screen-rotate.desktop
 	# Adreno 306 固件由 firmware-qcom-adreno-a300 提供（见 nonfree_firmware
 	# 子包的 depends），不要在这里重复安装，否则 apk 会报文件冲突。
 }

@@ -189,8 +189,8 @@ jobs:
         run: |
           set -e
           # Alpine edge 把 simdutf 升到 9.4.0（SONAME 37 -> 38），但 community 的
-          # vte3 还停在 r4、依赖 libsimdutf.so.37，apk 无法解析（xfce4-terminal 依赖它，
-          # 会拖垮整个 install）。上游 aports 已 bump 到 r5，但二进制仓库还没出包。
+          # vte3 还停在 r4、依赖 libsimdutf.so.37，apk 无法解析（终端类应用
+          # 如 xfce4-terminal/gnome-terminal 依赖它，会拖垮整个 install）。上游 aports 已 bump 到 r5，但二进制仓库还没出包。
           # 这里取 aports 源码放进 pmaports，让 pmbootstrap 编一个版本号更高的本地包顶替。
           VTE3="$APORTS_DIR/community/vte3"
           mkdir -p "$VTE3"
@@ -221,7 +221,7 @@ jobs:
           aports = $APORTS_DIR
           work = $WORK_DIR
           device = samsung-on7ltechn
-          ui = xfce4
+          ui = phosh
           user = user
           hostname = on7ltechn
           timezone = Asia/Shanghai
@@ -247,7 +247,7 @@ jobs:
           ./pmbootstrap.py -q config ui
           ./pmbootstrap.py -q config work
           test "$(./pmbootstrap.py -q config device)" = "samsung-on7ltechn"
-          test "$(./pmbootstrap.py -q config ui)"     = "xfce4"
+          test "$(./pmbootstrap.py -q config ui)"     = "phosh"
           # 建立 apkindex（首次会初始化 native chroot，耗时几分钟）
           ./pmbootstrap.py index 2>&1 | tail -5
 

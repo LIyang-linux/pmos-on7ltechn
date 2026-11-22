@@ -86,7 +86,7 @@ fastboot reboot
 | 分区 | 文件系统 | 内容 | 谁读它 |
 |---|---|---|---|
 | `pmOS_boot` | **ext2** | `extlinux/extlinux.conf`、内核、dtb、initramfs | lk2nd |
-| `pmOS_root` | ext4 | 完整根文件系统（含 xfce4） | 内核 |
+| `pmOS_root` | ext4 | 完整根文件系统（含 phosh） | 内核 |
 
 lk2nd 用的是 LK 的 ext2 驱动，不认 ext4 的 extents，所以启动分区必须是 ext2，
 且构建时不能加 `--split`（会把 `/boot` 拆成独立的 boot.img）。
