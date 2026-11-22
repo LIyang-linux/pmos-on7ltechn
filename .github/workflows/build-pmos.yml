@@ -234,10 +234,14 @@ jobs:
           channel = edge
           # 分区尺寸：pmbootstrap 的算法是 root = rootfs 体积×1.2 + 50 + extra_space。
           # boot_size 不能低于 512（pmbootstrap 有下限校验，写 256 会直接报
-          # "small/invalid boot_size"），所以整盘靠 extra_space 凑：
-          # 512 + (1335×1.2+50+9700) ≈ 11.6GiB，比 userdata 12.26GiB 小约 650M。
+          # "small/invalid boot_size"），所以整盘靠 extra_space 凑。
+          # userdata 分区是 12561.5MB（原厂 recovery 日志实测），镜像必须小于它：
+          #   xfce  : 512 + (1335×1.2+50+9700) = 11865M  ✅
+          #   phosh : 512 + (2002×1.2+50+9700) = 12665M  ❌ 超出 103.5M
+          # 所以 phosh 下把 extra_space 降到 9400：
+          #   512 + 2403 + 50 + 9400 = 12365M，留约 196M 余量。
           boot_size = 512
-          extra_space = 9700
+          extra_space = 9400
           EOF
           # work 目录需要版本标记，否则 pmbootstrap 认为需要重新初始化
           mkdir -p "$WORK_DIR/cache_git"
