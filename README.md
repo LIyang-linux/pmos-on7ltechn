@@ -53,7 +53,10 @@ Samsung Galaxy On7 国行版（SM-G6000 / `on7ltechn`，MSM8916，2GB RAM）的 
 | 显示 | ✅ 已通 | 面板补丁（0002/0003）生效，画面与背光正常 |
 | 触摸 | ✅ 已通 | ZT7548 init 序列补丁（0005）生效，实测触摸正常 |
 | WiFi | 待验证 | 依赖 `firmware-samsung-on7-wcnss-nv`（源在 pastebin，偶发拉不到） |
-| 电池 / 充电 | 待做 | SM5703 MUIC 可能已可用，电量计型号需确认 |
+| 电量显示 | ✅ 已通 | SM5703 fuelgauge 驱动（patch 0006），`/sys/class/power_supply/sm5703-fuelgauge` |
+| 充电检测 | ✅ 已通 | fuelgauge 上报充电/放电状态 |
+| 充电控制 | 待做 | 内核暂无 SM5703 charger 驱动（可用 Recovery 充电） |
+| GPU | ✅ 已启用 | `&gpu status = "okay"`（patch 0003），固件由 `firmware-qcom-adreno-a300` 提供 |
 | 音频 | 待做 | 需补 WCD 音频路由与 UCM |
 | 加速度计 | 待做 | 需确认型号并补 IIO 驱动/设备树 |
 | GPS | 待做 | 依赖 modem/gnss 子系统 |
