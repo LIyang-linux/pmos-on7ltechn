@@ -1,0 +1,16 @@
+--- a/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
++++ b/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
+@@ -319,3 +319,13 @@
+ 		};
+ 	};
+ };
++
++/* Adreno 306 超频：在 OPP 表里加 650 MHz 频点。
++ * msm8916 的 GPU 由 GDSC 供电（无独立调压），超频无电压余量，
++ * 若出现花屏/死机请移除本节点。
++ */
++&gpu_opp_table {
++	opp-650000000 {
++		opp-hz = /bits/ 64 <650000000>;
++	};
++};
