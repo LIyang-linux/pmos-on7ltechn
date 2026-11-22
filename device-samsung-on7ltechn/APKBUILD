@@ -2,7 +2,7 @@
 pkgname=device-samsung-on7ltechn
 pkgdesc="Samsung Galaxy On7 (2015) (China, SM-G6000)"
 pkgver=0
-pkgrel=6
+pkgrel=7
 url="https://postmarketos.org"
 license="MIT"
 arch="aarch64"
@@ -15,7 +15,7 @@ depends="
 	soc-qcom-msm8916-rproc
 "
 makedepends="devicepkg-dev"
-source="deviceinfo modules-initfs"
+source="deviceinfo modules-initfs mkinitfs-firmware.files"
 subpackages="
 	$pkgname-nonfree-firmware:nonfree_firmware
 "
@@ -28,6 +28,13 @@ package() {
 	devicepkg_package $startdir $pkgname
 	# Adreno 306 固件由 firmware-qcom-adreno-a300 提供（见 nonfree_firmware
 	# 子包的 depends），不要在这里重复安装，否则 apk 会报文件冲突。
+	#
+	# 但必须把固件放进 initramfs：GPU 在内核启动早期就 probe，那时 rootfs
+	# 还没挂载，request_firmware() 拿不到 /lib/firmware 里的 a300_*.fw，
+	# 导致 kgsl 设备没创建、GPU 完全不可用（phoc 退回软件渲染 → 卡死）。
+	# 这里通过 mkinitfs 的 .files 机制把固件打进 initramfs。
+	install -Dm644 "$startdir"/mkinitfs-firmware.files \
+		"$pkgdir"/usr/share/mkinitfs/files/50-$pkgname-firmware.files
 }
 
 nonfree_firmware() {
@@ -39,4 +46,5 @@ nonfree_firmware() {
 sha512sums="
 d456a3741841b77f47401816d778e1df39617c67ddcc5484c52c22eebda29700384a4b9b8628b87fa6a614bf690c700aae5592be46b6a7b98498561eb5459fb0  deviceinfo
 cea8239b960b61b55e487c94313cefe6c3ce2cb9ad4e4719ff9e29f685ca5f8f167a9a2fe261f49b9e52928821398f665d450c07f6467afd97ca58c7d5354e26  modules-initfs
+56f4cd1ca9081988c9b85b862b804c207dae002b3fef30d4cb30f81933aa29d51fee25c2b6fd2c4013a69d3fafba794bd66f78f6af1961b4e1c24caf5ceea152  mkinitfs-firmware.files
 "
