@@ -2,7 +2,7 @@
 pkgname=device-samsung-on7ltechn
 pkgdesc="Samsung Galaxy On7 (2015) (China, SM-G6000)"
 pkgver=0
-pkgrel=4
+pkgrel=5
 url="https://postmarketos.org"
 license="MIT"
 arch="aarch64"
@@ -32,11 +32,8 @@ package() {
 		"$pkgdir"/usr/bin/rotate-screen.sh
 	install -Dm644 "$startdir"/screen-rotate.desktop \
 		"$pkgdir"/etc/xdg/autostart/screen-rotate.desktop
-	# Adreno 306 GPU 固件（a300_pfp/a300_pm4，从原厂 system 提取）
-	install -Dm644 "$startdir"/firmware/qcom/a300_pfp.fw \
-		"$pkgdir"/usr/lib/firmware/qcom/a300_pfp.fw
-	install -Dm644 "$startdir"/firmware/qcom/a300_pm4.fw \
-		"$pkgdir"/usr/lib/firmware/qcom/a300_pm4.fw
+	# Adreno 306 固件由 firmware-qcom-adreno-a300 提供（见 nonfree_firmware
+	# 子包的 depends），不要在这里重复安装，否则 apk 会报文件冲突。
 }
 
 nonfree_firmware() {
