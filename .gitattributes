@@ -1,0 +1,5 @@
+# 设备包/脚本/补丁统一用 LF：Linux 侧 awk 解析 sha512sums 时
+# 带 CR 的文件名会找不到文件（sha512sum -c 失败）。
+device-samsung-on7ltechn/** text eol=lf
+*.sh text eol=lf
+*.patch text eol=lf
