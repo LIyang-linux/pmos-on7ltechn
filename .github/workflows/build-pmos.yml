@@ -56,9 +56,11 @@ jobs:
     # 非阻塞：init 的提示词随 pmbootstrap 版本变化，失败时不影响仓库其他构建
     continue-on-error: true
     env:
-      PMB_DIR: ${{ github.workspace }}/../pmbuild/pmbootstrap
-      APORTS_DIR: ${{ github.workspace }}/../pmbuild/pmaports
-      WORK_DIR: ${{ github.workspace }}/../pmbuild/work
+      # 放在 workspace 内：actions/cache 不接受含 ".." 的路径，
+      # 而缓存 pmbootstrap 的下载目录正需要它。
+      PMB_DIR: ${{ github.workspace }}/pmbuild/pmbootstrap
+      APORTS_DIR: ${{ github.workspace }}/pmbuild/pmaports
+      WORK_DIR: ${{ github.workspace }}/pmbuild/work
     steps:
       - uses: actions/checkout@v4
 
@@ -96,24 +98,17 @@ jobs:
           sudo swapon /swapfile
           free -h
 
-      - name: 3b. 恢复 ccache（内核编译加速）
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          # 主键含补丁内容哈希：补丁一变就必须重编，避免复用旧目标文件
-          key: ccache-${{ runner.os }}-${{ hashFiles('kernel-patches/**') }}
-          # 补丁变了也回退到最近一份，仍能命中大部分未受影响的文件
-          restore-keys: |
-            ccache-${{ runner.os }}-
-
-      - name: 3c. 恢复 pmbootstrap 下载缓存
+      # 注：ccache 不缓存。pmbootstrap 在 chroot 内以 pmos 用户跑 ccache，
+      # 缓存落在 chroot 里（/home/pmos/.ccache），而 buildroot 每次构建前会被
+      # zap 清空；且 pmbootstrap 用独立 env，父环境的 CCACHE_DIR 传不进去。
+      - name: 3c. 缓存 pmbootstrap 下载目录（apk / git）
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/../pmbuild/work/cache_git
-            ${{ github.workspace }}/../pmbuild/work/cache_apk_aarch64
-            ${{ github.workspace }}/../pmbuild/work/cache_apk_x86_64
-          key: pmos-dl-${{ runner.os }}-v2
+            ${{ github.workspace }}/pmbuild/work/cache_git
+            ${{ github.workspace }}/pmbuild/work/cache_apk_aarch64
+            ${{ github.workspace }}/pmbuild/work/cache_apk_x86_64
+          key: pmos-dl-${{ runner.os }}-v3
           restore-keys: |
             pmos-dl-${{ runner.os }}-
 
