@@ -226,7 +226,9 @@ jobs:
           aports = $APORTS_DIR
           work = $WORK_DIR
           device = samsung-on7ltechn
-          ui = phosh
+          # 纯终端 + 触摸屏虚拟键盘（postmarketos-ui-fbkeyboard 由设备包依赖引入）。
+          # Phosh 在这台机器上太重（Adreno 306 带不动全屏合成），console 更实用。
+          ui = console
           user = user
           hostname = on7ltechn
           timezone = Asia/Shanghai
@@ -256,7 +258,7 @@ jobs:
           ./pmbootstrap.py -q config ui
           ./pmbootstrap.py -q config work
           test "$(./pmbootstrap.py -q config device)" = "samsung-on7ltechn"
-          test "$(./pmbootstrap.py -q config ui)"     = "phosh"
+          test "$(./pmbootstrap.py -q config ui)"     = "console"
           # 建立 apkindex（首次会初始化 native chroot，耗时几分钟）
           ./pmbootstrap.py index 2>&1 | tail -5
 

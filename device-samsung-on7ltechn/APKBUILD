@@ -2,13 +2,14 @@
 pkgname=device-samsung-on7ltechn
 pkgdesc="Samsung Galaxy On7 (2015) (China, SM-G6000)"
 pkgver=0
-pkgrel=7
+pkgrel=8
 url="https://postmarketos.org"
 license="MIT"
 arch="aarch64"
 options="!check !archcheck"
 depends="
 	postmarketos-base
+	postmarketos-ui-fbkeyboard
 	mkbootimg
 	linux-postmarketos-qcom-msm8916
 	soc-qcom-msm8916
