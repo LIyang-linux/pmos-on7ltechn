@@ -1,13 +1,25 @@
 --- a/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
 +++ b/arch/arm64/boot/dts/qcom/msm8916-samsung-on7.dts
-@@ -319,3 +319,26 @@
+@@ -319,3 +319,58 @@
  		};
  	};
  };
 +
-+/* SM5703 charger: bit-banged I2C, SDA=gpio22 SCL=gpio23 (downstream rev03) */
-+/* mrstb = gpio24，复位芯片退出 shipping mode */
++/* ---- SM5703 电源相关：充电 / 稳压器 / 闪光灯 / 振动器 ----
++ * 以下参数取自原厂 msm8916-sec-o7lte-chn-r03.dtsi（on7ltechn / SM-G6000）
++ */
++
++/* 振动器：由 SM5703 LDO2 供电（原厂 regulator-name = "VDD_MOTOR"，3.3V） */
 +/ {
++	sm5703_vibrator: sm5703-vibrator {
++		compatible = "sm5703,vibrator";
++		vibrator,ldo_name = "VDD_MOTOR";
++		vibrator,ldo_volt = <3300000>;
++	};
++};
++
++/ {
++	/* 充电器 / MFD：bit-banged I2C，SDA=22 SCL=23（原厂 i2c_11） */
 +	i2c_chg: i2c_gpio_chg {
 +		compatible = "i2c-gpio";
 +		sda-gpios = <&tlmm 22 GPIO_ACTIVE_HIGH>;
@@ -19,10 +31,30 @@
 +		sm5703_mfd: sm5703-mfd@49 {
 +			compatible = "siliconmitus,sm5703mfd";
 +			reg = <0x49>;
++			/* mrstb：probe 时脉冲复位，让芯片退出 shipping mode */
 +			mrstb-gpios = <&tlmm 24 GPIO_ACTIVE_HIGH>;
++			interrupt-parent = <&tlmm>;
++			interrupts = <62 IRQ_TYPE_LEVEL_LOW>;
 +
 +			charger: charger {
 +				compatible = "siliconmitus,sm5703-charger";
++			};
++
++			/* LDO2 = 振动器供电，1.5~3.3V（原厂值） */
++			ldo2: ldo2 {
++				compatible = "siliconmitus,sm5703-ldo2";
++				regulator-name = "VDD_MOTOR";
++				regulator-min-microvolt = <1500000>;
++				regulator-max-microvolt = <3300000>;
++			};
++
++			/* 后置闪光灯：LED1/LED2 分别由 GPIO36/34 使能 */
++			fled: fled {
++				compatible = "siliconmitus,sm5703-fled";
++				led1-gpios = <&tlmm 36 GPIO_ACTIVE_HIGH>;
++				led2-gpios = <&tlmm 34 GPIO_ACTIVE_HIGH>;
++				flash-current = <1200>;
++				movie-current = <170>;
 +			};
 +		};
 +	};

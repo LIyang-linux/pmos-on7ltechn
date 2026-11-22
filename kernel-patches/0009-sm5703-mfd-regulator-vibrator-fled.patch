@@ -1,0 +1,796 @@
+From: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
+Subject: [PATCH] mfd: add SiliconMitus SM5703 MFD, regulators, vibrator and flash LED
+
+Add the SiliconMitus SM5703 multi-function device support used by the
+Samsung Galaxy On7 (SM-G6000 / on7ltechn):
+
+  - MFD core that creates platform devices for the sub-nodes
+  - LDO regulator driver (LDO2 supplies the vibrator, "VDD_MOTOR")
+  - vibrator driver on the mainline timed_output API
+  - minimal flash LED driver on the standard LED class
+
+Register map and register usage are taken from the downstream Samsung
+drivers (GPL-2.0): drivers/mfd/sm5703_core.c, drivers/regulator/
+sm5703_regulator.c, drivers/motor/sm5703_vibrator.c and
+drivers/leds/sm5703_fled.c.
+
+Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
+---
+ drivers/leds/Kconfig          |  8 ++++++++
+ drivers/leds/Makefile         |  1 +
+ drivers/mfd/Kconfig           |  8 ++++++++
+ drivers/mfd/Makefile          |  1 +
+ drivers/misc/Kconfig          |  8 ++++++++
+ drivers/misc/Makefile         |  1 +
+ drivers/regulator/Kconfig     |  8 ++++++++
+ drivers/regulator/Makefile    |  1 +
+ drivers/mfd/sm5703-mfd.c         | 63 ++++++++++++++++++++++++++++++++
+ drivers/regulator/sm5703-regulator.c | 221 ++++++++++++++++++++++++++++++++
+ drivers/misc/sm5703-vibrator.c   | 202 ++++++++++++++++++++++++++++++++
+ drivers/leds/sm5703-fled.c       | 183 ++++++++++++++++++++++++++++++++
+ 12 files changed
+---
+--- a/drivers/mfd/Kconfig
++++ b/drivers/mfd/Kconfig
+@@ -2403,4 +2403,12 @@
+ 	  of the device.
+ 
+ endmenu
++config MFD_SM5703
++	tristate "SiliconMitus SM5703 MFD"
++	depends on I2C
++	help
++	  Multi-function device core for the SiliconMitus SM5703
++	  (charger, regulators, flash LED) found in Samsung devices
++	  such as the Galaxy On7 (on7ltechn).
++
+ endif
+--- a/drivers/regulator/Kconfig
++++ b/drivers/regulator/Kconfig
+@@ -1720,4 +1720,11 @@
+ 	  boost regulator and IBB can be used as a negative boost regulator
+ 	  for LCD display panel.
+ 
++config REGULATOR_SM5703
++	tristate "SiliconMitus SM5703 LDOs"
++	depends on MFD_SM5703 && OF
++	help
++	  Regulator driver for the SiliconMitus SM5703 LDOs. On the
++	  Galaxy On7 (on7ltechn) LDO2 supplies the vibrator motor.
++
+ endif
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -629,3 +629,9 @@
+ source "drivers/misc/mchp_pci1xxxx/Kconfig"
+ source "drivers/misc/keba/Kconfig"
+ endmenu
++config VIBRATOR_SM5703
++	tristate "SiliconMitus SM5703 vibrator"
++	depends on MFD_SM5703
++	help
++	  Vibrator driver (timed_output) for Samsung devices using the
++	  SiliconMitus SM5703, e.g. the Galaxy On7 (on7ltechn).
+--- a/drivers/leds/Kconfig
++++ b/drivers/leds/Kconfig
+@@ -973,4 +973,11 @@
+ comment "Simple LED drivers"
+ source "drivers/leds/simple/Kconfig"
+ 
++config LEDS_SM5703_FLED
++	tristate "SiliconMitus SM5703 flash LED"
++	depends on MFD_SM5703 && LEDS_CLASS
++	help
++	  Flash LED driver for the SiliconMitus SM5703, found in the
++	  Galaxy On7 (on7ltechn) and other Samsung devices.
++
+ endif # NEW_LEDS
+--- a/drivers/mfd/Makefile
++++ b/drivers/mfd/Makefile
+@@ -289,3 +289,4 @@
+ 
+ obj-$(CONFIG_MFD_RSMU_I2C)	+= rsmu_i2c.o rsmu_core.o
+ obj-$(CONFIG_MFD_RSMU_SPI)	+= rsmu_spi.o rsmu_core.o
++obj-$(CONFIG_MFD_SM5703)		+= sm5703-mfd.o
+--- a/drivers/regulator/Makefile
++++ b/drivers/regulator/Makefile
+@@ -203,3 +203,4 @@
+ obj-$(CONFIG_REGULATOR_WM8994) += wm8994-regulator.o
+ 
+ ccflags-$(CONFIG_REGULATOR_DEBUG) += -DDEBUG
++obj-$(CONFIG_REGULATOR_SM5703)	+= sm5703-regulator.o
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -72,3 +72,4 @@
+ obj-$(CONFIG_NSM)		+= nsm.o
+ obj-$(CONFIG_MARVELL_CN10K_DPI)	+= mrvl_cn10k_dpi.o
+ obj-y				+= keba/
++obj-$(CONFIG_VIBRATOR_SM5703)	+= sm5703-vibrator.o
+--- a/drivers/leds/Makefile
++++ b/drivers/leds/Makefile
+@@ -119,3 +119,4 @@
+ 
+ # Simple LED drivers
+ obj-y					+= simple/
++obj-$(CONFIG_LEDS_SM5703_FLED)	+= sm5703-fled.o
+--- /dev/null
++++ b/drivers/mfd/sm5703-mfd.c
+@@ -0,0 +1,63 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * SiliconMitus SM5703 MFD core.
++ *
++ * The charger, regulators, flash LED and (optionally) the fuel gauge live
++ * behind a single I2C address (0x49). This driver only creates the
++ * platform devices for the sub-nodes; each function has its own driver.
++ *
++ * Derived from the downstream drivers/mfd/sm5703_core.c (GPL-2.0).
++ */
++
++#include <linux/i2c.h>
++#include <linux/mfd/core.h>
++#include <linux/module.h>
++#include <linux/of.h>
++
++static const struct mfd_cell sm5703_cells[] = {
++	{
++		.name		= "sm5703-charger",
++		.of_compatible	= "siliconmitus,sm5703-charger",
++	},
++	{
++		.name		= "sm5703-regulator",
++		.of_compatible	= "siliconmitus,sm5703-ldo2",
++	},
++	{
++		.name		= "sm5703-fled",
++		.of_compatible	= "siliconmitus,sm5703-fled",
++	},
++};
++
++static int sm5703_mfd_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	int ret;
++
++	ret = devm_mfd_add_devices(dev, PLATFORM_DEVID_NONE,
++				   sm5703_cells, ARRAY_SIZE(sm5703_cells),
++				   NULL, 0, NULL);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to add MFD cells\n");
++
++	return 0;
++}
++
++static const struct of_device_id sm5703_mfd_of_match[] = {
++	{ .compatible = "siliconmitus,sm5703mfd", },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sm5703_mfd_of_match);
++
++static struct i2c_driver sm5703_mfd_driver = {
++	.driver = {
++		.name = "sm5703-mfd",
++		.of_match_table = sm5703_mfd_of_match,
++	},
++	.probe = sm5703_mfd_probe,
++};
++module_i2c_driver(sm5703_mfd_driver);
++
++MODULE_DESCRIPTION("SiliconMitus SM5703 MFD core");
++MODULE_AUTHOR("LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/regulator/sm5703-regulator.c
+@@ -0,0 +1,221 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * SiliconMitus SM5703 regulator driver (minimal, direct I2C).
++ *
++ * Only the LDOs are implemented; the buck and USB LDOs are not used by the
++ * Galaxy On7 (on7ltechn). Register map is taken from the downstream
++ * drivers/regulator/sm5703_regulator.c (GPL-2.0).
++ *
++ * On this board LDO2 is used as the vibrator supply ("VDD_MOTOR", 3.3 V).
++ */
++
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regulator/driver.h>
++#include <linux/regulator/machine.h>
++#include <linux/regulator/of_regulator.h>
++
++#define SM5703_LDOOUT1CNTL		0x1a
++#define SM5703_LDOOUT2CNTL		0x1b
++#define SM5703_LDOOUT3CNTL		0x1c
++
++#define SM5703_LDO_VOLT_MASK		0x07
++#define SM5703_LDO_VOLT_SHIFT		0
++#define SM5703_LDO_EN			BIT(3)
++
++static const int sm5703_ldo_voltagemap[] = {
++	1500000, 1800000, 2600000, 2800000, 3000000, 3300000,
++};
++
++struct sm5703_regulator {
++	struct i2c_client *client;
++};
++
++static int sm5703_reg_read(struct sm5703_regulator *reg, u8 r, u8 *val)
++{
++	int ret = i2c_smbus_read_byte_data(reg->client, r);
++
++	if (ret < 0)
++		return ret;
++	*val = (u8)ret;
++	return 0;
++}
++
++static int sm5703_reg_write(struct sm5703_regulator *reg, u8 r, u8 val)
++{
++	return i2c_smbus_write_byte_data(reg->client, r, val);
++}
++
++static int sm5703_reg_update_bits(struct sm5703_regulator *reg, u8 r,
++				  u8 mask, u8 val)
++{
++	int ret;
++	u8 old, new;
++
++	ret = sm5703_reg_read(reg, r, &old);
++	if (ret)
++		return ret;
++
++	new = (old & ~mask) | (val & mask);
++	if (new == old)
++		return 0;
++
++	return sm5703_reg_write(reg, r, new);
++}
++
++static int sm5703_ldo_enable(struct regulator_dev *rdev)
++{
++	struct sm5703_regulator *reg = rdev_get_drvdata(rdev);
++
++	return sm5703_reg_update_bits(reg, (u8)rdev->desc->enable_reg,
++				      SM5703_LDO_EN, SM5703_LDO_EN);
++}
++
++static int sm5703_ldo_disable(struct regulator_dev *rdev)
++{
++	struct sm5703_regulator *reg = rdev_get_drvdata(rdev);
++
++	return sm5703_reg_update_bits(reg, (u8)rdev->desc->enable_reg,
++				      SM5703_LDO_EN, 0);
++}
++
++static int sm5703_ldo_is_enabled(struct regulator_dev *rdev)
++{
++	struct sm5703_regulator *reg = rdev_get_drvdata(rdev);
++	u8 val = 0;
++	int ret;
++
++	ret = sm5703_reg_read(reg, (u8)rdev->desc->enable_reg, &val);
++	if (ret)
++		return ret;
++
++	return (val & SM5703_LDO_EN) ? 1 : 0;
++}
++
++static int sm5703_ldo_list_voltage(struct regulator_dev *rdev,
++				   unsigned int selector)
++{
++	if (selector >= ARRAY_SIZE(sm5703_ldo_voltagemap))
++		return -EINVAL;
++
++	return sm5703_ldo_voltagemap[selector];
++}
++
++static int sm5703_ldo_get_voltage_sel(struct regulator_dev *rdev)
++{
++	struct sm5703_regulator *reg = rdev_get_drvdata(rdev);
++	u8 val = 0;
++	int ret;
++
++	ret = sm5703_reg_read(reg, (u8)rdev->desc->vsel_reg, &val);
++	if (ret)
++		return ret;
++
++	return (val & SM5703_LDO_VOLT_MASK) >> SM5703_LDO_VOLT_SHIFT;
++}
++
++static int sm5703_ldo_set_voltage_sel(struct regulator_dev *rdev,
++				      unsigned int selector)
++{
++	struct sm5703_regulator *reg = rdev_get_drvdata(rdev);
++
++	return sm5703_reg_update_bits(reg, (u8)rdev->desc->vsel_reg,
++				     SM5703_LDO_VOLT_MASK,
++				     (u8)(selector << SM5703_LDO_VOLT_SHIFT));
++}
++
++static const struct regulator_ops sm5703_ldo_ops = {
++	.enable			= sm5703_ldo_enable,
++	.disable		= sm5703_ldo_disable,
++	.is_enabled		= sm5703_ldo_is_enabled,
++	.list_voltage		= sm5703_ldo_list_voltage,
++	.get_voltage_sel	= sm5703_ldo_get_voltage_sel,
++	.set_voltage_sel	= sm5703_ldo_set_voltage_sel,
++};
++
++#define SM5703_LDO_DESC(_name, _of, _id, _reg)				\
++	{								\
++		.name = _name,						\
++		.of_match = _of,					\
++		.regulators_node = "regulators",			\
++		.type = REGULATOR_VOLTAGE,				\
++		.id = _id,						\
++		.n_voltages = ARRAY_SIZE(sm5703_ldo_voltagemap),	\
++		.volt_table = sm5703_ldo_voltagemap,			\
++		.ops = &sm5703_ldo_ops,					\
++		.vsel_reg = _reg,					\
++		.vsel_mask = SM5703_LDO_VOLT_MASK,			\
++		.enable_reg = _reg,					\
++		.enable_mask = SM5703_LDO_EN,				\
++		.owner = THIS_MODULE,					\
++	}
++
++static const struct regulator_desc sm5703_ldo_descs[] = {
++	SM5703_LDO_DESC("sm5703-ldo1", "siliconmitus,sm5703-ldo1", 0,
++			SM5703_LDOOUT1CNTL),
++	SM5703_LDO_DESC("sm5703-ldo2", "siliconmitus,sm5703-ldo2", 1,
++			SM5703_LDOOUT2CNTL),
++	SM5703_LDO_DESC("sm5703-ldo3", "siliconmitus,sm5703-ldo3", 2,
++			SM5703_LDOOUT3CNTL),
++};
++
++static int sm5703_regulator_probe(struct platform_device *pdev)
++{
++	struct i2c_client *client = i2c_verify_client(pdev->dev.parent);
++	struct device *dev = &pdev->dev;
++	struct sm5703_regulator *reg;
++	struct regulator_config cfg = {};
++	int i, ret;
++
++	if (!client)
++		return -ENODEV;
++
++	reg = devm_kzalloc(dev, sizeof(*reg), GFP_KERNEL);
++	if (!reg)
++		return -ENOMEM;
++
++	reg->client = client;
++	platform_set_drvdata(pdev, reg);
++
++	cfg.dev = dev;
++	cfg.driver_data = reg;
++	cfg.of_node = dev->of_node;
++
++	for (i = 0; i < ARRAY_SIZE(sm5703_ldo_descs); i++) {
++		const struct regulator_desc *desc = &sm5703_ldo_descs[i];
++		struct regulator_dev *rdev;
++
++		rdev = devm_regulator_register(dev, desc, &cfg);
++		if (IS_ERR(rdev)) {
++			ret = dev_err_probe(dev, PTR_ERR(rdev),
++					    "failed to register %s\n",
++					    desc->name);
++			return ret;
++		}
++	}
++
++	return 0;
++}
++
++static const struct of_device_id sm5703_regulator_of_match[] = {
++	{ .compatible = "siliconmitus,sm5703-ldo1", },
++	{ .compatible = "siliconmitus,sm5703-ldo2", },
++	{ .compatible = "siliconmitus,sm5703-ldo3", },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sm5703_regulator_of_match);
++
++static struct platform_driver sm5703_regulator_driver = {
++	.driver = {
++		.name = "sm5703-regulator",
++		.of_match_table = sm5703_regulator_of_match,
++	},
++	.probe = sm5703_regulator_probe,
++};
++module_platform_driver(sm5703_regulator_driver);
++
++MODULE_DESCRIPTION("SiliconMitus SM5703 LDO regulator driver");
++MODULE_AUTHOR("LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/misc/sm5703-vibrator.c
+@@ -0,0 +1,202 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * SM5703 vibrator driver (timed_output).
++ *
++ * Adapted from the downstream drivers/motor/sm5703_vibrator.c (GPL-2.0)
++ * to the mainline timed_output API.
++ *
++ * The motor is powered by an SM5703 LDO (on this board LDO2, named
++ * "VDD_MOTOR"), so the regulator must be enabled while vibrating.
++ */
++
++#include <linux/err.h>
++#include <linux/hrtimer.h>
++#include <linux/i2c.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regulator/consumer.h>
++#include <linux/timed_output.h>
++#include <linux/workqueue.h>
++
++#define VIB_DEFAULT_TIMEOUT	10000
++
++struct sm5703_vib {
++	struct hrtimer vib_timer;
++	struct timed_output_dev timed_dev;
++	struct work_struct work;
++	struct workqueue_struct *queue;
++
++	struct regulator *vib_power;
++	const char *power_name;
++	int power_volt;
++	int state;
++	int timeout;
++	struct mutex lock;
++};
++
++static void set_vibrator(struct regulator *reg_vib, int on)
++{
++	int ret;
++
++	if (!reg_vib)
++		return;
++
++	if (on) {
++		if (!regulator_is_enabled(reg_vib)) {
++			ret = regulator_enable(reg_vib);
++			if (ret)
++				dev_err(NULL, "vibrator regulator enable failed: %d\n",
++					ret);
++		}
++	} else {
++		if (regulator_is_enabled(reg_vib)) {
++			ret = regulator_disable(reg_vib);
++			if (ret)
++				dev_err(NULL, "vibrator regulator disable failed: %d\n",
++					ret);
++		}
++	}
++}
++
++static void sm5703_vibrator_update(struct work_struct *work)
++{
++	struct sm5703_vib *vib = container_of(work, struct sm5703_vib, work);
++
++	set_vibrator(vib->vib_power, vib->state);
++}
++
++static enum hrtimer_restart vibrator_timer_func(struct hrtimer *timer)
++{
++	struct sm5703_vib *vib = container_of(timer, struct sm5703_vib,
++					      vib_timer);
++
++	vib->state = 0;
++	queue_work(vib->queue, &vib->work);
++
++	return HRTIMER_NORESTART;
++}
++
++static void vibrator_enable(struct timed_output_dev *dev, int value)
++{
++	struct sm5703_vib *vib = container_of(dev, struct sm5703_vib,
++					      timed_dev);
++
++	mutex_lock(&vib->lock);
++	hrtimer_cancel(&vib->vib_timer);
++
++	if (value == 0) {
++		vib->state = 0;
++	} else {
++		vib->state = 1;
++		if (value != 0x7fffffff) {
++			value = min(value, vib->timeout);
++			hrtimer_start(&vib->vib_timer,
++				      ms_to_ktime(value),
++				      HRTIMER_MODE_REL);
++		}
++	}
++	mutex_unlock(&vib->lock);
++
++	queue_work(vib->queue, &vib->work);
++}
++
++static int vibrator_get_time(struct timed_output_dev *dev)
++{
++	struct sm5703_vib *vib = container_of(dev, struct sm5703_vib,
++					      timed_dev);
++	ktime_t r;
++
++	if (hrtimer_active(&vib->vib_timer)) {
++		r = hrtimer_get_remaining(&vib->vib_timer);
++		return (int)ktime_to_us(r);
++	}
++
++	return 0;
++}
++
++static int sm5703_vibrator_probe(struct platform_device *pdev)
++{
++	struct sm5703_vib *vib;
++	int rc;
++
++	vib = devm_kzalloc(&pdev->dev, sizeof(*vib), GFP_KERNEL);
++	if (!vib)
++		return -ENOMEM;
++
++	rc = of_property_read_string(pdev->dev.of_node,
++				     "vibrator,ldo_name", &vib->power_name);
++	if (rc < 0)
++		dev_err(&pdev->dev, "unable to read vibrator,ldo_name\n");
++
++	rc = of_property_read_u32(pdev->dev.of_node,
++				  "vibrator,ldo_volt", (u32 *)&vib->power_volt);
++	if (rc < 0)
++		dev_err(&pdev->dev, "unable to read vibrator,ldo_volt\n");
++
++	vib->vib_power = devm_regulator_get(&pdev->dev, vib->power_name);
++	if (IS_ERR(vib->vib_power))
++		return dev_err_probe(&pdev->dev, PTR_ERR(vib->vib_power),
++				     "could not get vibrator regulator\n");
++
++	regulator_set_voltage(vib->vib_power, vib->power_volt,
++			      vib->power_volt);
++
++	vib->timeout = VIB_DEFAULT_TIMEOUT;
++
++	INIT_WORK(&vib->work, sm5703_vibrator_update);
++	mutex_init(&vib->lock);
++
++	vib->queue = create_singlethread_workqueue("sm5703_vibrator");
++	if (!vib->queue)
++		return -ENOMEM;
++
++	hrtimer_init(&vib->vib_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
++	vib->vib_timer.function = vibrator_timer_func;
++
++	vib->timed_dev.name = "vibrator";
++	vib->timed_dev.get_time = vibrator_get_time;
++	vib->timed_dev.enable = vibrator_enable;
++
++	platform_set_drvdata(pdev, vib);
++
++	rc = timed_output_dev_register(&vib->timed_dev);
++	if (rc < 0) {
++		destroy_workqueue(vib->queue);
++		return rc;
++	}
++
++	return 0;
++}
++
++static int sm5703_vibrator_remove(struct platform_device *pdev)
++{
++	struct sm5703_vib *vib = platform_get_drvdata(pdev);
++
++	timed_output_dev_unregister(&vib->timed_dev);
++	destroy_workqueue(vib->queue);
++	mutex_destroy(&vib->lock);
++
++	return 0;
++}
++
++static const struct of_device_id sm5703_vibrator_of_match[] = {
++	{ .compatible = "sm5703,vibrator", },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sm5703_vibrator_of_match);
++
++static struct platform_driver sm5703_vibrator_driver = {
++	.driver = {
++		.name = "sm5703_vibrator",
++		.of_match_table = sm5703_vibrator_of_match,
++	},
++	.probe = sm5703_vibrator_probe,
++	.remove = sm5703_vibrator_remove,
++};
++module_platform_driver(sm5703_vibrator_driver);
++
++MODULE_DESCRIPTION("SM5703 timed output vibrator driver");
++MODULE_AUTHOR("LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>");
++MODULE_LICENSE("GPL");
+--- /dev/null
++++ b/drivers/leds/sm5703-fled.c
+@@ -0,0 +1,183 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * SiliconMitus SM5703 flash LED driver (minimal).
++ *
++ * Derived from the downstream drivers/leds/sm5703_fled.c (GPL-2.0), but
++ * using the standard LED class instead of Samsung's private smfled
++ * framework. Brightness: 0 = off, 1 = torch (movie), 2 = flash.
++ *
++ * Register map (from include/linux/leds/sm5703_fled.h):
++ *   FLEDCNTL1 0x14  bit0-1 FLEDEN: 0 off / 1 movie / 2 flash
++ *   FLEDCNTL2 0x15  safety timer
++ *   FLEDCNTL3 0x16  flash current (IFLED)
++ *   FLEDCNTL4 0x17  movie current (IMLED)
++ *   FLEDCNTL6 0x19  boost output voltage (BSTOUT)
++ */
++
++#include <linux/delay.h>
++#include <linux/err.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/leds.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++
++#define SM5703_FLEDCNTL1		0x14
++#define SM5703_FLEDCNTL2		0x15
++#define SM5703_FLEDCNTL3		0x16
++#define SM5703_FLEDCNTL4		0x17
++#define SM5703_FLEDCNTL6		0x19
++
++#define SM5703_FLEDEN_MASK		0x03
++#define SM5703_FLEDEN_MOVIE		0x01
++#define SM5703_FLEDEN_FLASH		0x02
++
++#define SM5703_IFLED_MASK		0x1f
++#define SM5703_IMLED_MASK		0x1f
++
++#define SM5703_BSTOUT_MASK		0x0f
++#define SM5703_BSTOUT_5P0		0x0a
++
++#define SM5703_FLASH_CURRENT(mA)	((mA) < 700 ?			\
++					 (((mA) - 300) / 25) & 0x1f : \
++					 (((((mA) - 700) / 50) + 0x0f) & 0x1f))
++#define SM5703_MOVIE_CURRENT(mA)	((((mA) - 10) / 10) & 0x1f)
++
++struct sm5703_fled {
++	struct i2c_client *client;
++	struct led_classdev cdev;
++	struct gpio_desc *led1_gpiod;
++	struct gpio_desc *led2_gpiod;
++	int flash_current;
++	int movie_current;
++};
++
++static int sm5703_fled_write(struct sm5703_fled *fled, u8 reg, u8 val)
++{
++	return i2c_smbus_write_byte_data(fled->client, reg, val);
++}
++
++static int sm5703_fled_update_bits(struct sm5703_fled *fled, u8 reg,
++				   u8 mask, u8 val)
++{
++	int ret;
++	u8 old, new;
++
++	ret = i2c_smbus_read_byte_data(fled->client, reg);
++	if (ret < 0)
++		return ret;
++	old = (u8)ret;
++
++	new = (old & ~mask) | (val & mask);
++	if (new == old)
++		return 0;
++
++	return sm5703_fled_write(fled, reg, new);
++}
++
++static void sm5703_fled_brightness_set(struct led_classdev *cdev,
++				       enum led_brightness value)
++{
++	struct sm5703_fled *fled = container_of(cdev, struct sm5703_fled,
++						cdev);
++	int mode = 0;
++
++	if (value == 0) {
++		mode = 0;
++	} else if (value == 1) {
++		mode = SM5703_FLEDEN_MOVIE;
++	} else {
++		mode = SM5703_FLEDEN_FLASH;
++	}
++
++	sm5703_fled_update_bits(fled, SM5703_FLEDCNTL1,
++				SM5703_FLEDEN_MASK, (u8)mode);
++
++	if (fled->led1_gpiod)
++		gpiod_set_value_cansleep(fled->led1_gpiod, value ? 1 : 0);
++	if (fled->led2_gpiod)
++		gpiod_set_value_cansleep(fled->led2_gpiod, value ? 1 : 0);
++}
++
++static int sm5703_fled_probe(struct platform_device *pdev)
++{
++	struct i2c_client *client = i2c_verify_client(pdev->dev.parent);
++	struct device *dev = &pdev->dev;
++	struct sm5703_fled *fled;
++	struct led_init_data init_data = {};
++	int ret;
++
++	if (!client)
++		return -ENODEV;
++
++	fled = devm_kzalloc(dev, sizeof(*fled), GFP_KERNEL);
++	if (!fled)
++		return -ENOMEM;
++
++	fled->client = client;
++	platform_set_drvdata(pdev, fled);
++
++	ret = of_property_read_u32(dev->of_node, "flash-current",
++				   (u32 *)&fled->flash_current);
++	if (ret)
++		fled->flash_current = 1200;
++
++	ret = of_property_read_u32(dev->of_node, "movie-current",
++				   (u32 *)&fled->movie_current);
++	if (ret)
++		fled->movie_current = 170;
++
++	fled->led1_gpiod = devm_gpiod_get_optional(dev, "led1", GPIOD_OUT_LOW);
++	if (IS_ERR(fled->led1_gpiod))
++		return dev_err_probe(dev, PTR_ERR(fled->led1_gpiod),
++				     "failed to get led1 gpio\n");
++
++	fled->led2_gpiod = devm_gpiod_get_optional(dev, "led2", GPIOD_OUT_LOW);
++	if (IS_ERR(fled->led2_gpiod))
++		return dev_err_probe(dev, PTR_ERR(fled->led2_gpiod),
++				     "failed to get led2 gpio\n");
++
++	/* boost output 5.0 V, flash/movie currents, safety timer */
++	sm5703_fled_write(fled, SM5703_FLEDCNTL6,
++			  SM5703_BSTOUT_5P0 & SM5703_BSTOUT_MASK);
++	sm5703_fled_write(fled, SM5703_FLEDCNTL3,
++			  (u8)(SM5703_FLASH_CURRENT(fled->flash_current) &
++			       SM5703_IFLED_MASK));
++	sm5703_fled_write(fled, SM5703_FLEDCNTL4,
++			  (u8)(SM5703_MOVIE_CURRENT(fled->movie_current) &
++			       SM5703_IMLED_MASK));
++	sm5703_fled_write(fled, SM5703_FLEDCNTL1, 0x1c);
++	sm5703_fled_write(fled, SM5703_FLEDCNTL2, 0x94);
++
++	fled->cdev.name = "sm5703-fled";
++	fled->cdev.brightness = 0;
++	fled->cdev.max_brightness = 2;
++	fled->cdev.brightness_set = sm5703_fled_brightness_set;
++
++	ret = devm_led_classdev_register_ext(dev, &fled->cdev, &init_data);
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "failed to register LED\n");
++
++	return 0;
++}
++
++static const struct of_device_id sm5703_fled_of_match[] = {
++	{ .compatible = "siliconmitus,sm5703-fled", },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sm5703_fled_of_match);
++
++static struct platform_driver sm5703_fled_driver = {
++	.driver = {
++		.name = "sm5703-fled",
++		.of_match_table = sm5703_fled_of_match,
++	},
++	.probe = sm5703_fled_probe,
++};
++module_platform_driver(sm5703_fled_driver);
++
++MODULE_DESCRIPTION("SiliconMitus SM5703 flash LED driver");
++MODULE_AUTHOR("LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>");
++MODULE_LICENSE("GPL");

@@ -165,7 +165,11 @@ jobs:
                        CONFIG_BACKLIGHT_CLASS_DEVICE \
                        CONFIG_TOUCHSCREEN_ZINITIX \
                        CONFIG_POWER_SUPPLY_SM5703 \
-                       CONFIG_POWER_SUPPLY_SM5703_CHARGER; do
+                       CONFIG_POWER_SUPPLY_SM5703_CHARGER \
+                       CONFIG_MFD_SM5703 \
+                       CONFIG_REGULATOR_SM5703 \
+                       CONFIG_VIBRATOR_SM5703 \
+                       CONFIG_LEDS_SM5703_FLED; do
               sed -i -e "s/^${OPT}=.*/${OPT}=y/" \
                      -e "s/^# ${OPT} is not set/${OPT}=y/" "$CFG"
               grep -q "^${OPT}=" "$CFG" || echo "${OPT}=y" >> "$CFG"

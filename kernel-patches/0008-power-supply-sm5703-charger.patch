@@ -17,8 +17,8 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 ---
  drivers/power/supply/Kconfig          |  8 ++++++++
  drivers/power/supply/Makefile         |  1 +
- drivers/power/supply/sm5703-charger.c | 436 ++++++++++++++++++++++++++++++++
- 3 files changed, 445 insertions(+)
+ drivers/power/supply/sm5703-charger.c | 434 ++++++++++++++++++++++++++++++++
+ 3 files changed, 443 insertions(+)
  create mode 100644 drivers/power/supply/sm5703-charger.c
 ---
 --- a/drivers/power/supply/Kconfig
@@ -45,7 +45,7 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 +obj-$(CONFIG_POWER_SUPPLY_SM5703_CHARGER)	+= sm5703-charger.o
 --- /dev/null
 +++ b/drivers/power/supply/sm5703-charger.c
-@@ -0,0 +1,436 @@
+@@ -0,0 +1,434 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Minimal SiliconMitus SM5703 charger driver for the Samsung Galaxy On7
@@ -392,23 +392,27 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 +	msleep(SM5703_MRSTB_SETTLE_MS);
 +}
 +
-+static int sm5703_chg_probe(struct i2c_client *client)
++static int sm5703_chg_probe(struct platform_device *pdev)
 +{
++	struct i2c_client *client = i2c_verify_client(pdev->dev.parent);
 +	struct sm5703_charger *chg;
 +	struct power_supply_config psy_cfg = {};
 +	int status2, status3, vbuscntl, chgcntl2, chgcntl3, ret;
 +
-+	chg = devm_kzalloc(&client->dev, sizeof(*chg), GFP_KERNEL);
++	if (!client)
++		return -ENODEV;
++
++	chg = devm_kzalloc(&pdev->dev, sizeof(*chg), GFP_KERNEL);
 +	if (!chg)
 +		return -ENOMEM;
 +
 +	chg->client = client;
-+	i2c_set_clientdata(client, chg);
++	platform_set_drvdata(pdev, chg);
 +
-+	chg->mrstb_gpiod = devm_gpiod_get_optional(&client->dev, "mrstb",
++	chg->mrstb_gpiod = devm_gpiod_get_optional(&pdev->dev, "mrstb",
 +						   GPIOD_OUT_HIGH);
 +	if (IS_ERR(chg->mrstb_gpiod))
-+		return dev_err_probe(&client->dev, PTR_ERR(chg->mrstb_gpiod),
++		return dev_err_probe(&pdev->dev, PTR_ERR(chg->mrstb_gpiod),
 +				     "failed to get mrstb gpio\n");
 +
 +	sm5703_chg_reset(chg);
@@ -424,11 +428,11 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 +	chg->desc.property_is_writeable = sm5703_chg_property_is_writeable;
 +
 +	psy_cfg.drv_data = chg;
-+	psy_cfg.of_node = client->dev.of_node;
++	psy_cfg.of_node = pdev->dev.of_node;
 +
-+	chg->psy = devm_power_supply_register(&client->dev, &chg->desc, &psy_cfg);
++	chg->psy = devm_power_supply_register(&pdev->dev, &chg->desc, &psy_cfg);
 +	if (IS_ERR(chg->psy))
-+		return dev_err_probe(&client->dev, PTR_ERR(chg->psy),
++		return dev_err_probe(&pdev->dev, PTR_ERR(chg->psy),
 +				     "failed to register power supply\n");
 +
 +	status2 = sm5703_chg_read(chg, SM5703_STATUS2);
@@ -439,45 +443,39 @@ Signed-off-by: LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>
 +
 +	ret = sm5703_chg_set_charge_enabled(chg, true);
 +	if (ret < 0)
-+		dev_warn(&client->dev, "failed to enable charging: %d\n", ret);
++		dev_warn(&pdev->dev, "failed to enable charging: %d\n", ret);
 +
-+	dev_info(&client->dev,
++	dev_info(&pdev->dev,
 +		 "SM5703 charger registered: status2=0x%02x status3=0x%02x vbuscntl=0x%02x chgcntl2=0x%02x chgcntl3=0x%02x\n",
 +		 status2, status3, vbuscntl, chgcntl2, chgcntl3);
 +
 +	return 0;
 +}
 +
-+static void sm5703_chg_remove(struct i2c_client *client)
++static int sm5703_chg_remove(struct platform_device *pdev)
 +{
-+	struct sm5703_charger *chg = i2c_get_clientdata(client);
++	struct sm5703_charger *chg = platform_get_drvdata(pdev);
 +
 +	power_supply_unregister(chg->psy);
++
++	return 0;
 +}
 +
 +static const struct of_device_id sm5703_chg_of_match[] = {
-+	{ .compatible = "siliconmitus,sm5703mfd" },
 +	{ .compatible = "siliconmitus,sm5703-charger" },
 +	{ }
 +};
 +MODULE_DEVICE_TABLE(of, sm5703_chg_of_match);
 +
-+static const struct i2c_device_id sm5703_chg_id[] = {
-+	{ "sm5703-charger" },
-+	{ }
-+};
-+MODULE_DEVICE_TABLE(i2c, sm5703_chg_id);
-+
-+static struct i2c_driver sm5703_chg_driver = {
++static struct platform_driver sm5703_chg_driver = {
 +	.driver = {
 +		.name = "sm5703-charger",
 +		.of_match_table = sm5703_chg_of_match,
 +	},
 +	.probe = sm5703_chg_probe,
 +	.remove = sm5703_chg_remove,
-+	.id_table = sm5703_chg_id,
 +};
-+module_i2c_driver(sm5703_chg_driver);
++module_platform_driver(sm5703_chg_driver);
 +
 +MODULE_DESCRIPTION("SM5703 charger driver with charge control limit");
 +MODULE_AUTHOR("LIyang-linux <196529580+LIyang-linux@users.noreply.github.com>");
